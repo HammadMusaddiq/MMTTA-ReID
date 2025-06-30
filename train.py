@@ -1,10 +1,10 @@
 from utils.logger import setup_logger
-from datasets import make_dataloader
+from datasets import make_dataloader, make_dataloader_dual
 from model import make_model
 from solver import make_optimizer
 from solver.scheduler_factory import create_scheduler
-from loss import make_loss
-from processor import do_train
+from loss import make_loss, make_loss_dual
+from processor import do_train, do_train_dual
 import random
 import torch
 import numpy as np
@@ -12,6 +12,8 @@ import os
 import argparse
 # from timm.scheduler import create_scheduler
 from config import cfg
+
+torch.cuda.empty_cache()
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -63,23 +65,40 @@ if __name__ == '__main__':
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
     os.environ['CUDA_VISIBLE_DEVICES'] = cfg.MODEL.DEVICE_ID
-    train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg)
 
     train_mode = cfg.MODEL.TRAIN_MODE
-
     fuse_strategy = cfg.MODEL.FUSE_STRATEGY
+    
+    ## Two Modalities
+    train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader_dual(cfg)
+    loss_func, center_criterion = make_loss_dual(cfg, num_classes=num_classes)
+    modality = "dual"
 
-    model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num, train_mode=train_mode, fuse_strategy=fuse_strategy)
-
-    loss_func, center_criterion = make_loss(cfg, num_classes=num_classes)
+    ## Three Modalities
+    # train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg)
+    # loss_func, center_criterion = make_loss(cfg, num_classes=num_classes)
+    # modality = "three"
+    
+    model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num, train_mode=train_mode, fuse_strategy=fuse_strategy, modality = modality)
 
     optimizer, optimizer_center = make_optimizer(cfg, model, center_criterion)
 
     scheduler = create_scheduler(cfg, optimizer)
 
+    # do_train(
+    #     cfg,
+    #     model,
+    #     center_criterion,
+    #     train_loader,
+    #     val_loader,
+    #     optimizer,
+    #     optimizer_center,
+    #     scheduler,
+    #     loss_func,
+    #     num_query, args.local_rank
+    # )
 
-
-    do_train(
+    do_train_dual(
         cfg,
         model,
         center_criterion,
@@ -91,3 +110,9 @@ if __name__ == '__main__':
         loss_func,
         num_query, args.local_rank
     )
+
+# CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/RGBNT201/vit_base.yml
+# CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/MSMT/vit_base.yml
+# CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Market1501/vit_base.yml
+# CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Cuhk03/vit_base.yml
+# CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/PRCC/vit_base.yml

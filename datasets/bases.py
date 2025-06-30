@@ -69,6 +69,7 @@ class BaseImageDataset(BaseDataset):
         print("  ----------------------------------------")
 
 
+# Three modalities (original)
 class ImageDataset(Dataset):
     def __init__(self, dataset, transform=None):
         self.dataset = dataset
@@ -124,3 +125,43 @@ class ImageDataset(Dataset):
                 img_3 = self.transform(img_3)
 
             return img_1, img_2, img_3, pid, camid, trackid, img_path[0].split('/')[-1]
+
+# Two modalities
+class ImageDataset_dual(Dataset):
+    def __init__(self, dataset, transform=None):
+        self.dataset = dataset
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        img_path, pid, camid, trackid = self.dataset[index]
+        if isinstance(img_path, list):
+            # Load first modality (e.g., visible)
+            img_1 = read_image(img_path[0])
+            if self.transform is not None:
+                img_1 = self.transform(img_1)
+
+            # Get shape for placeholder tensor
+            a, b, c = img_1.shape
+            tmp = torch.zeros(a, b, c)
+
+            # Load second modality (e.g., IR or TI)
+            if not os.path.exists(img_path[1]):
+                img_2 = tmp
+            else:
+                img_2 = read_image(img_path[1])
+                if self.transform is not None:
+                    img_2 = self.transform(img_2)
+
+            return img_1, img_2, pid, camid, trackid, img_path[0].split('/')[-1]
+        else:
+            # Handle single image case (not used for multi-modality)
+            img = read_image(img_path)
+            img_1 = img.crop((0, 0, 256, 128))  # First segment
+            img_2 = img.crop((256, 0, 512, 128))  # Second segment
+            if self.transform is not None:
+                img_1 = self.transform(img_1)
+                img_2 = self.transform(img_2)
+            return img_1, img_2, pid, camid, trackid, img_path.split('/')[-1]

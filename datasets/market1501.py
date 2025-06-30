@@ -23,17 +23,18 @@ class Market1501(BaseImageDataset):
     # identities: 1501 (+1 for background)
     # images: 12936 (train) + 3368 (query) + 15913 (gallery)
     """
-    dataset_dir = 'market1501_to_RGBNT201_dark'
+    # dataset_dir = 'market1501_to_RGBNT201_dark'
+    dataset_dir = 'Market1501'
 
     def __init__(self, root='', verbose=True, **kwargs):
         super(Market1501, self).__init__()
         self.dataset_dir = osp.join(root, self.dataset_dir)
-        self.train_dir = osp.join(self.dataset_dir, 'train')
+        self.train_dir = osp.join(self.dataset_dir, 'bounding_box_train')
         self.query_dir = osp.join(self.dataset_dir, 'query')
-        self.gallery_dir = osp.join(self.dataset_dir, 'gallery')
+        self.gallery_dir = osp.join(self.dataset_dir, 'bounding_box_test')
 
         self._check_before_run()
-
+        
         train = self._process_dir_train(self.train_dir, relabel=True)
         query = self._process_dir_test(self.query_dir, relabel=False)
         gallery = self._process_dir_test(self.gallery_dir, relabel=False)
@@ -68,10 +69,10 @@ class Market1501(BaseImageDataset):
             raise RuntimeError("'{}' is not available".format(self.gallery_dir))
     
     def _process_dir_train(self, dir_path, relabel=False):
-        img_paths_RGB = glob.glob(osp.join(dir_path, 'RGB', '*.jpg'))
+        img_paths_RGB = glob.glob(osp.join(dir_path, 'visible', '*.jpg'))
         pid_container = set()
         for img_path_RGB in img_paths_RGB:
-            jpg_name = img_path_RGB.split('\\')[-1]
+            jpg_name = img_path_RGB.split('/')[-1]
             pid = int(jpg_name.split('_')[0][0:4])
             pid_container.add(pid)
         pid2label = {pid: label for label, pid in enumerate(pid_container)}
@@ -79,8 +80,8 @@ class Market1501(BaseImageDataset):
         data = []
         for img_path_RGB in img_paths_RGB:
             img = []
-            jpg_name = img_path_RGB.split('\\')[-1]
-            img_path_NI = osp.join(dir_path, 'NI', jpg_name)
+            jpg_name = img_path_RGB.split('/')[-1]
+            img_path_NI = osp.join(dir_path, 'IR', jpg_name)
             img_path_TI = osp.join(dir_path, 'TI', jpg_name)
             img.append(img_path_RGB)
             img.append(img_path_NI)
@@ -102,10 +103,10 @@ class Market1501(BaseImageDataset):
         return data
         
     def _process_dir_test(self, dir_path, relabel=False):
-            img_paths_RGB = glob.glob(osp.join(dir_path, 'RGB', '*.jpg'))
+            img_paths_RGB = glob.glob(osp.join(dir_path, 'visible', '*.jpg'))
             pid_container = set()
             for img_path_RGB in img_paths_RGB:
-                jpg_name = img_path_RGB.split('\\')[-1]
+                jpg_name = img_path_RGB.split('/')[-1]
                 pid = int(jpg_name.split('_')[0][0:4])
                 pid_container.add(pid)
             pid2label = {pid: label for label, pid in enumerate(pid_container)}
@@ -113,15 +114,15 @@ class Market1501(BaseImageDataset):
             data = []
             for img_path_RGB in img_paths_RGB:
                 img = []
-                jpg_name = img_path_RGB.split('\\')[-1]
+                jpg_name = img_path_RGB.split('/')[-1]
 
                 
-                img_path_NI = osp.join(dir_path, 'NI', jpg_name)
+                img_path_NI = osp.join(dir_path, 'IR', jpg_name)
                 img_path_TI = osp.join(dir_path, 'TI', jpg_name)
                 
                 img.append(img_path_RGB)
                 img.append(img_path_NI)
-                img.append(img_path_TI)
+                # img.append(img_path_TI)
                 pid = int(jpg_name.split('_')[0][0:4])
                 camid = int(jpg_name.split('_')[1][1])
                 camid -= 1 # index starts from 0

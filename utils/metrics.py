@@ -106,9 +106,9 @@ class R1_mAP_eval():
     def update(self, output):  # called once for each batch
         feat, pid, camid, timeid = output
         self.feats.append(feat.cpu())
-        self.pids.extend(np.asarray(pid))
-        self.camids.extend(np.asarray(camid))
-        self.timeids.extend(np.asarray(timeid))
+        self.pids.extend(np.asarray(pid.cpu() if isinstance(pid, torch.Tensor) else pid))
+        self.camids.extend(np.asarray(camid.cpu() if isinstance(camid, torch.Tensor) else camid))
+        self.timeids.extend(np.asarray(timeid.cpu() if isinstance(timeid, torch.Tensor) else timeid))
         # print(len(self.feats), len(self.pids), len(self.camids))
 
     # def update_ttt(self, output):  # called once for each batch
