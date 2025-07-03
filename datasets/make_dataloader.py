@@ -132,7 +132,7 @@ def make_dataloader(cfg):
             collate_fn=train_collate_fn
         )
     else:
-        print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.SAMPLER))
+        print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.DATALOADER.SAMPLER))
 
     val_set = ImageDataset(dataset.query + dataset.gallery, val_transforms)
 
@@ -202,7 +202,7 @@ def make_dataloader_dual(cfg):
             collate_fn=train_collate_fn_dual
         )
     else:
-        print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.SAMPLER))
+        print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.DATALOADER.SAMPLER))
 
     val_set = ImageDataset_dual(dataset.query + dataset.gallery, val_transforms)
 
