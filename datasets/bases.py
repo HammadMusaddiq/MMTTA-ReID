@@ -112,7 +112,7 @@ class ImageDataset(Dataset):
                 #img1 = img
                 img_1 = img.crop((0, 0, 256, 128))
                 img_2 = img.crop((256, 0, 512, 128))
-                img_3 = img.crop((256, 0, 768, 128))
+                img_3 = img.crop((512, 0, 768, 128))
             if img.size == (512, 128):
                 # print(2)
                 #img1 = img
@@ -124,7 +124,7 @@ class ImageDataset(Dataset):
                 img_2 = self.transform(img_2)
                 img_3 = self.transform(img_3)
 
-            return img_1, img_2, img_3, pid, camid, trackid, img_path[0].split('/')[-1]
+            return img_1, img_2, img_3, pid, camid, trackid, img_path.split('/')[-1]
 
 # Two modalities
 class ImageDataset_dual(Dataset):
