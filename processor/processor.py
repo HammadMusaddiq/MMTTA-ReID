@@ -50,7 +50,9 @@ def do_train(cfg,
         evaluator.reset()
         scheduler.step(epoch)
         model.train()
-        for n_iter, (img1, img2, img3, vid, target_cam, target_view) in enumerate(train_loader):
+        # for n_iter, (img1, img2, img3, vid, target_cam, target_view) in enumerate(train_loader):
+        for n_iter, (img1, img2, img3, captions, vid, target_cam, target_view) in enumerate(train_loader):
+
             optimizer.zero_grad()
             optimizer_center.zero_grad()
             img1 = img1.to(device)
@@ -60,8 +62,11 @@ def do_train(cfg,
             target_cam = target_cam.to(device)
             target_view = target_view.to(device)
             with amp.autocast(enabled=True):
-                score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view )
-                loss = loss_fn(score, feat, target, target_cam)
+                # score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view )
+                score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view, captions=captions)
+
+                # loss = loss_fn(score, feat, target, target_cam)
+                loss = loss_fn(score, feat, target, target_cam, captions=feat[4])
 
             scaler.scale(loss).backward()
 

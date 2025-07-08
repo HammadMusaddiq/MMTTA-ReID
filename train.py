@@ -70,14 +70,26 @@ if __name__ == '__main__':
     fuse_strategy = cfg.MODEL.FUSE_STRATEGY
     
     ## Two Modalities
-    train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader_dual(cfg)
-    loss_func, center_criterion = make_loss_dual(cfg, num_classes=num_classes)
-    modality = "dual"
+    # loader_modality = ["RGB", "IR"]
+    # logger.info("Data Modalities: {}".format(loader_modality))
+    # train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader_dual(cfg, loader_modality)
+    # loss_func, center_criterion = make_loss_dual(cfg, num_classes=num_classes)
+    # modality = "dual"
+
+    image_modality = cfg.IMAGE_MODALITY
+    caption_enabled = cfg.CAPTION.ENABLE
+    caption_strategy = cfg.CAPTION.STRATEGY if caption_enabled else "N/A"
+    caption_modalities = image_modality if caption_enabled and caption_strategy == "matched" else ["RGB"] if caption_enabled else []
+
+    logger.info("Image Modalities: {}".format(image_modality))
+    logger.info("Caption Enabled: {}".format(caption_enabled))
+    logger.info("Caption Strategy: {}".format(caption_strategy))
+    logger.info("Caption Modalities: {}".format(caption_modalities))
 
     ## Three Modalities
-    # train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg)
-    # loss_func, center_criterion = make_loss(cfg, num_classes=num_classes)
-    # modality = "three"
+    train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg)
+    loss_func, center_criterion = make_loss(cfg, num_classes=num_classes)
+    modality = "three"
     
     model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num, train_mode=train_mode, fuse_strategy=fuse_strategy, modality = modality)
 
@@ -85,20 +97,7 @@ if __name__ == '__main__':
 
     scheduler = create_scheduler(cfg, optimizer)
 
-    # do_train(
-    #     cfg,
-    #     model,
-    #     center_criterion,
-    #     train_loader,
-    #     val_loader,
-    #     optimizer,
-    #     optimizer_center,
-    #     scheduler,
-    #     loss_func,
-    #     num_query, args.local_rank
-    # )
-
-    do_train_dual(
+    do_train(
         cfg,
         model,
         center_criterion,
@@ -111,8 +110,22 @@ if __name__ == '__main__':
         num_query, args.local_rank
     )
 
+    # do_train_dual(
+    #     cfg,
+    #     model,
+    #     center_criterion,
+    #     train_loader,
+    #     val_loader,
+    #     optimizer,
+    #     optimizer_center,
+    #     scheduler,
+    #     loss_func,
+    #     num_query, args.local_rank
+    # )
+
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/RGBNT201/vit_base.yml
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/MSMT/vit_base.yml
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Market1501/vit_base.yml
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Cuhk03/vit_base.yml
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/PRCC/vit_base.yml
+# CUDA_VISIBLE_DEVICES=1 python train.py --config_file configs/CelebReID/vit_base.yml

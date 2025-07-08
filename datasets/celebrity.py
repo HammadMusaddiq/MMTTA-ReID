@@ -58,11 +58,16 @@ class Celebrity(BaseImageDataset):
             if img_name.endswith('.jpg'):
                 pid = int(img_name.split('_')[0]) - 1
                 # Construct paths for all three modalities
-                img_paths = [
-                    osp.join(dir_path, 'visible', img_name),
-                    osp.join(dir_path, 'IR', img_name),
-                    osp.join(dir_path, 'TI', img_name)
-                ]
-                cam_id = 0 if is_query else 1
-                dataset.append((img_paths, self.pid_begin + pid, cam_id, 1))
+                img_path_RGB = osp.join(dir_path, 'visible', img_name)
+                img_path_NI = osp.join(dir_path, 'IR', img_name)
+                img_path_TI = osp.join(dir_path, 'TI', img_name)
+
+                if osp.exists(img_path_RGB) and osp.exists(img_path_NI) and osp.exists(img_path_TI):
+                    img_paths = []
+                    img_paths.append(img_path_RGB)
+                    img_paths.append(img_path_NI)
+                    img_paths.append(img_path_TI)
+                    
+                    cam_id = 0 if is_query else 1
+                    dataset.append((img_paths, self.pid_begin + pid, cam_id, 1))
         return dataset

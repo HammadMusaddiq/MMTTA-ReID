@@ -10,6 +10,15 @@ MODEL:
   DEVICE_ID: ('1')
   TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
   STRIDE_SIZE: [16, 16]
+  ID_LOSS_TYPE: 'softmax'
+  ID_LOSS_WEIGHT: 1.0
+  TRIPLET_LOSS_WEIGHT: 1.0
+  IF_LABELSMOOTH: 'off'
+  IF_WITH_CENTER: 'no'
+  DROP_OUT: 0.0
+  DROP_PATH: 0.3
+  LAST_STRIDE: 1
+  NECK: 'bnneck'
   # TRAIN_MODE: 'RNT'
 
 INPUT:
@@ -45,11 +54,19 @@ SOLVER:
   WEIGHT_DECAY:  1e-4
   WEIGHT_DECAY_BIAS: 1e-4
   BIAS_LR_FACTOR: 2
+  CENTER_LOSS_WEIGHT: 0.0005
+  CENTER_LR: 0.5
+  STEPS: (40, 70)
+  GAMMA: 0.1
+  MOMENTUM: 0.9
+  WARMUP_EPOCHS: 20
+  WARMUP_FACTOR: 0.01
+  SEED: 1234
   # SEED: 1
 
 TEST:
   EVAL: True
-  IMS_PER_BATCH: 64
+  IMS_PER_BATCH: 256
   RE_RANKING: False
   # WEIGHT: 'E:\code\TransReID-3modal-ttt-main-AAAI2024\logs_rgbnt201\baseline+CIM15-68.5% 71.1% 82.7% 88.9%\transformer_best.pth'
   WEIGHT: ''
@@ -57,6 +74,6 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/MSMT/CIM_margin/margin_0.5'
+OUTPUT_DIR: './logs/MSMT/new'
 
 

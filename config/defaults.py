@@ -192,3 +192,15 @@ _C.TEST.EVAL = False
 # ---------------------------------------------------------------------------- #
 # Path to checkpoint and saved log of trained model
 _C.OUTPUT_DIR = ""
+
+
+_C.IMAGE_MODALITY = ["RGB"]
+_C.CAPTION = CN()
+_C.CAPTION.ENABLE = False
+_C.CAPTION.STRATEGY = "rgb_only"  # or "matched"
+_C.CAPTION.MODALITY = ["RGB"]     # used if strategy is "matched"
+_C.CAPTION.LOSS = CN()
+_C.CAPTION.LOSS.TRIPLET = True
+_C.CAPTION.LOSS.CONTRASTIVE = True
+_C.CAPTION.LOSS.WEIGHT = 0.5
+_C.MODEL.CAPTION_MODEL_PATH = "bert-base-uncased" 

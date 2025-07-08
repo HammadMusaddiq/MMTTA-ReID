@@ -2,12 +2,13 @@ MODEL:
   PRETRAIN_CHOICE: 'imagenet'
   # PRETRAIN_PATH: 'C:\Users\ziwang\.conda\jx_vit_base_p16_224-80ecf9dd.pth'
   PRETRAIN_PATH: 'models/jx_vit_base_p16_224-80ecf9dd.pth'
+  CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased"
   METRIC_LOSS_TYPE: 'triplet'
   IF_LABELSMOOTH: 'off'
   IF_WITH_CENTER: 'no'
   NAME: 'transformer'
   NO_MARGIN: True
-  DEVICE_ID: ('1')
+  DEVICE_ID: ('2')
   TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
   STRIDE_SIZE: [16, 16]
   # TRAIN_MODE: 'RNT'
@@ -32,6 +33,16 @@ DATALOADER:
   SAMPLER: 'softmax_triplet'
   NUM_INSTANCE: 4
   NUM_WORKERS: 8
+
+IMAGE_MODALITY: ["RGB", "IR", "TI"]
+
+CAPTION:
+  ENABLE: True
+  STRATEGY: "matched"   # or "rgb_only"
+  LOSS:
+    TRIPLET: True
+    CONTRASTIVE: True
+    WEIGHT: 0.5
 
 SOLVER:
   OPTIMIZER_NAME: 'SGD'
@@ -58,6 +69,6 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/Market1501/RGB+IR'
+OUTPUT_DIR: './logs/Market1501/4M'
 
 

@@ -5,6 +5,7 @@ import copy
 from .backbones.vit_pytorch import vit_base_patch16_224_TransReID, vit_small_patch16_224_TransReID, deit_small_patch16_224_TransReID
 from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
 import torch.nn.functional as F
+from transformers import AutoModel, AutoTokenizer
 
 def shuffle_unit(features, shift, group, begin=1):
 
@@ -136,6 +137,15 @@ class build_transformer(nn.Module):
         self.neck = cfg.MODEL.NECK
         self.neck_feat = cfg.TEST.NECK_FEAT
         self.in_planes = 768
+        self.use_caption = cfg.CAPTION.ENABLE
+        caption_model_path = cfg.MODEL.CAPTION_MODEL_PATH
+
+        if self.use_caption:
+            self.caption_strategy = cfg.CAPTION.STRATEGY
+            self.caption_modalities = cfg.CAPTION.MODALITY if self.caption_strategy == "matched" else ["RGB"]
+            self.text_encoder = AutoModel.from_pretrained(caption_model_path, local_files_only=True)
+            self.tokenizer = AutoTokenizer.from_pretrained(caption_model_path, local_files_only=True)
+            self.text_proj = nn.Linear(768, self.in_planes * len(self.caption_modalities))  # map BERT [CLS] to feature space
 
         print('using Transformer_type: {} as a backbone'.format(cfg.MODEL.TRANSFORMER_TYPE))
 
@@ -228,7 +238,7 @@ class build_transformer(nn.Module):
         return nn.Sequential(*layers)
 
 
-    def forward(self, x1, x2, x3, label=None, cam_label= None, view_label=None):
+    def forward(self, x1, x2, x3, label=None, cam_label= None, view_label=None, captions=None):
         global_feat1 = self.base(x1, cam_label=cam_label, view_label=view_label)
         global_feat2 = self.base(x2, cam_label=cam_label, view_label=view_label)
         global_feat3 = self.base(x3, cam_label=cam_label, view_label=view_label)
@@ -236,19 +246,52 @@ class build_transformer(nn.Module):
         global_feat = torch.cat([global_feat1, global_feat2 , global_feat3], dim=1)
         feat = self.bottleneck(global_feat)
 
+        text_feats = None  # Ensure always defined
+        # if self.use_caption and captions is not None:
+        #     # captions: list of strings or list of list of strings
+        #     if isinstance(captions[0], list):  # single caption per sample
+        #         inputs = self.tokenizer(captions, padding=True, truncation=True, return_tensors="pt").to(x1.device)
+        #         outputs = self.text_encoder(**inputs)
+        #         cls_emb = outputs.last_hidden_state[:, 0]  # [B, 768]
+        #         projected = self.text_proj(cls_emb)        # [B, #modalities * dim]
+        #         # Reshape to [#modalities, B, dim]
+        #         text_feats = projected.view(-1, len(self.caption_modalities), self.in_planes).permute(1, 0, 2)
+        #         # → [#caps, B, D]
+        #     else:
+        #         raise ValueError("Expected list of strings for captions")
+
+        if self.use_caption and captions is not None:
+            # captions: list of strings or list of list of strings
+            if isinstance(captions[0], str):
+                # Already a list of single string per sample
+                processed_captions = captions
+            elif isinstance(captions[0], list) and isinstance(captions[0][0], str):
+                # List of multiple captions per sample — pick the first one
+                processed_captions = [cap_list[0] for cap_list in captions]
+            else:
+                raise ValueError("Captions should be a list of strings or list of list of strings.")
+
+            # Tokenize and encode
+            inputs = self.tokenizer(processed_captions, padding=True, truncation=True, return_tensors="pt").to(x1.device)
+            outputs = self.text_encoder(**inputs)
+            cls_emb = outputs.last_hidden_state[:, 0]  # [B, 768]
+            projected = self.text_proj(cls_emb)        # [B, #modalities * dim]
+            text_feats = projected.view(-1, len(self.caption_modalities), self.in_planes).permute(1, 0, 2)
+            # text_feats: [#caption_modalities, B, dim]
+
+
         if self.training:
             if self.ID_LOSS_TYPE in ('arcface', 'cosface', 'amsoftmax', 'circle'):
                 cls_score = self.classifier(feat, label)
             else:
                 cls_score = self.classifier(feat)
 
-            return cls_score, [global_feat, global_feat1, global_feat2, global_feat3]  # global feature for triplet loss
+            return cls_score, [global_feat, global_feat1, global_feat2, global_feat3, text_feats]  # feat[4] is cap feat
+
         else:
             if self.neck_feat == 'after':
-                # print("Test with feature after BN")
                 return feat
             else:
-                # print("Test with feature before BN")
                 return global_feat
 
     def load_param(self, trained_path):
@@ -396,14 +439,18 @@ __factory_T_type = {
     'deit_small_patch16_224_TransReID': deit_small_patch16_224_TransReID
 }
 
-def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy):
+def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy, modality = "three"):
     if cfg.MODEL.NAME == 'transformer':
         if cfg.MODEL.JPM:
             # model = build_transformer_local(num_class, camera_num, view_num, cfg, __factory_T_type, rearrange=cfg.MODEL.RE_ARRANGE)
             print('===========building transformer with JPM module ===========')
         else:
-            model = build_transformer_dual(num_class, camera_num, view_num, cfg, __factory_T_type) # 2 modalities
-            # model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type) # 3 modalities
+            if modality == "dual":
+                model = build_transformer_dual(num_class, camera_num, view_num, cfg, __factory_T_type) # 2 modalities
+
+            elif modality == "three":
+                model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type) # 3 modalities
+            
             print('===========building transformer===========')
     else:
         model = Backbone(num_class, cfg)

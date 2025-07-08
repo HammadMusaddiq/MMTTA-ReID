@@ -36,15 +36,33 @@ __factory = {
 }
 
 
+# def train_collate_fn(batch):
+#     """
+#     # collate_fn这个函数的输入就是一个list，list的长度是一个batch size，list中的每个元素都是__getitem__得到的结果
+#     """
+#     imgs_1, imgs_2, imgs_3, pids, camids, viewids , _ = zip(*batch)
+#     pids = torch.tensor(pids, dtype=torch.int64)
+#     viewids = torch.tensor(viewids, dtype=torch.int64)
+#     camids = torch.tensor(camids, dtype=torch.int64)
+#     return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids,
+
 def train_collate_fn(batch):
     """
-    # collate_fn这个函数的输入就是一个list，list的长度是一个batch size，list中的每个元素都是__getitem__得到的结果
+    Dynamic collate_fn that handles image-only or image+caption data.
     """
-    imgs_1, imgs_2, imgs_3, pids, camids, viewids , _ = zip(*batch)
-    pids = torch.tensor(pids, dtype=torch.int64)
-    viewids = torch.tensor(viewids, dtype=torch.int64)
-    camids = torch.tensor(camids, dtype=torch.int64)
-    return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids,
+    # Check if captions are included in the batch
+    if isinstance(batch[0][3], list):  # If 4th element is a list, it's caption list
+        imgs_1, imgs_2, imgs_3, captions, pids, camids, viewids, _ = zip(*batch)
+        pids = torch.tensor(pids, dtype=torch.int64)
+        camids = torch.tensor(camids, dtype=torch.int64)
+        viewids = torch.tensor(viewids, dtype=torch.int64)
+        return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), list(captions), pids, camids, viewids
+    else:
+        imgs_1, imgs_2, imgs_3, pids, camids, viewids, _ = zip(*batch)
+        pids = torch.tensor(pids, dtype=torch.int64)
+        camids = torch.tensor(camids, dtype=torch.int64)
+        viewids = torch.tensor(viewids, dtype=torch.int64)
+        return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids
 
 def train_collate_fn_dual(batch):
     """
@@ -58,13 +76,34 @@ def train_collate_fn_dual(batch):
     camids = torch.tensor(camids, dtype=torch.int64)
     return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), pids, camids, trackids
 
+# def val_collate_fn(batch):
+#     imgs_1, imgs_2, imgs_3, pids, camids, viewids, img_paths = zip(*batch)
+#     pids = torch.tensor(pids, dtype=torch.int64)
+#     viewids = torch.tensor(viewids, dtype=torch.int64)
+#     camids_batch = torch.tensor(camids, dtype=torch.int64)
+#     camids = torch.tensor(camids, dtype=torch.int64)
+#     return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids
+
 def val_collate_fn(batch):
-    imgs_1, imgs_2, imgs_3, pids, camids, viewids, img_paths = zip(*batch)
-    pids = torch.tensor(pids, dtype=torch.int64)
-    viewids = torch.tensor(viewids, dtype=torch.int64)
-    camids_batch = torch.tensor(camids, dtype=torch.int64)
-    camids = torch.tensor(camids, dtype=torch.int64)
-    return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids
+    if isinstance(batch[0][3], list):  # Captions included
+        imgs_1, imgs_2, imgs_3, captions, pids, camids, viewids, img_paths = zip(*batch)
+        return (
+            torch.stack(imgs_1, dim=0),
+            torch.stack(imgs_2, dim=0),
+            torch.stack(imgs_3, dim=0),
+            list(captions),
+            torch.tensor(pids, dtype=torch.int64),
+            torch.tensor(camids, dtype=torch.int64),
+            torch.tensor(viewids, dtype=torch.int64),
+            # list(img_paths)
+        )
+    else:  # No captions
+        imgs_1, imgs_2, imgs_3, pids, camids, viewids, img_paths = zip(*batch)
+        pids = torch.tensor(pids, dtype=torch.int64)
+        viewids = torch.tensor(viewids, dtype=torch.int64)
+        camids_batch = torch.tensor(camids, dtype=torch.int64)
+        camids = torch.tensor(camids, dtype=torch.int64)
+        return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids
 
 def val_collate_fn_dual(batch):
     """
@@ -98,7 +137,17 @@ def make_dataloader(cfg):
 
     num_workers = cfg.DATALOADER.NUM_WORKERS
 
-    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR)
+    image_modality = cfg.IMAGE_MODALITY  # e.g., ["RGB", "IR", "TI"]
+    caption_modality = []
+
+    if cfg.CAPTION.ENABLE:
+        if cfg.CAPTION.STRATEGY == "matched":
+            caption_modality = image_modality
+        else:
+            caption_modality = ["RGB"]
+
+    # dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR)
+    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, i_modality=image_modality, c_modality=caption_modality)  # Pass modality here   
 
     train_set = ImageDataset(dataset.train, train_transforms)
     # train_set_normal = ImageDataset(dataset.train, val_transforms)
@@ -151,7 +200,7 @@ def make_dataloader(cfg):
     return train_loader, val_loader_ttt, val_loader, len(dataset.query), num_classes, cam_num, view_num
 
 
-def make_dataloader_dual(cfg):
+def make_dataloader_dual(cfg, modality):
     train_transforms = T.Compose([
         T.Resize(cfg.INPUT.SIZE_TRAIN, interpolation=3),
         T.Pad(cfg.INPUT.PADDING),
@@ -169,7 +218,8 @@ def make_dataloader_dual(cfg):
 
     num_workers = cfg.DATALOADER.NUM_WORKERS
 
-    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR)
+    # dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR)
+    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, modality=modality)  # Pass modality here
 
     train_set = ImageDataset_dual(dataset.train, train_transforms)
     num_classes = dataset.num_train_pids
