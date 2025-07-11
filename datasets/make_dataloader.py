@@ -87,23 +87,34 @@ def train_collate_fn_dual(batch):
 def val_collate_fn(batch):
     if isinstance(batch[0][3], list):  # Captions included
         imgs_1, imgs_2, imgs_3, captions, pids, camids, viewids, img_paths = zip(*batch)
+
+        # Flatten and copy captions properly
+        if isinstance(captions[0], list):
+            # captions is tuple of list → make list of lists
+            captions = [cap for cap in captions]
+        else:
+            # fallback (shouldn't hit)
+            captions = list(captions)
+
         return (
             torch.stack(imgs_1, dim=0),
             torch.stack(imgs_2, dim=0),
             torch.stack(imgs_3, dim=0),
-            list(captions),
+            captions,  # keep as list, do NOT touch with torch.tensor()
             torch.tensor(pids, dtype=torch.int64),
             torch.tensor(camids, dtype=torch.int64),
             torch.tensor(viewids, dtype=torch.int64),
-            # list(img_paths)
         )
-    else:  # No captions
+    else:
         imgs_1, imgs_2, imgs_3, pids, camids, viewids, img_paths = zip(*batch)
-        pids = torch.tensor(pids, dtype=torch.int64)
-        viewids = torch.tensor(viewids, dtype=torch.int64)
-        camids_batch = torch.tensor(camids, dtype=torch.int64)
-        camids = torch.tensor(camids, dtype=torch.int64)
-        return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids
+        return (
+            torch.stack(imgs_1, dim=0),
+            torch.stack(imgs_2, dim=0),
+            torch.stack(imgs_3, dim=0),
+            torch.tensor(pids, dtype=torch.int64),
+            torch.tensor(camids, dtype=torch.int64),
+            torch.tensor(viewids, dtype=torch.int64),
+        )
 
 def val_collate_fn_dual(batch):
     """

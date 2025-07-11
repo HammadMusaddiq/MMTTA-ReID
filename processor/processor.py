@@ -63,8 +63,8 @@ def do_train(cfg,
             target_view = target_view.to(device)
             with amp.autocast(enabled=True):
                 # score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view )
-                score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view, captions=captions)
-
+                # score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view, captions=captions)
+                score, feat = model(img1, img2, img3, label=target, cam_label=target_cam, view_label=target_view, captions=captions)
                 # loss = loss_fn(score, feat, target, target_cam)
                 loss = loss_fn(score, feat, target, target_cam, captions=feat[4])
 
@@ -132,16 +132,43 @@ def do_train(cfg,
                     torch.cuda.empty_cache()
             else:
                 model.eval()
-                for n_iter, (img1, img2, img3, vid, camids, target_views) in enumerate(val_loader):
+                # for n_iter, (img1, img2, img3, vid, camids, target_views) in enumerate(val_loader):
+                # for n_iter, (img1, img2, img3, vid, camids, target_views, captions) in enumerate(val_loader):
+
+                for batch in val_loader:
+                    if len(batch) == 7:                       # loader WITH captions
+                        (img1, img2, img3,
+                        captions,           # <-- index 3
+                        vid, camids, target_views) = batch
+                    else:                                     # loader WITHOUT captions
+                        (img1, img2, img3,
+                        vid, camids, target_views) = batch
+                        captions = None                       # no captions in this batch
+
                     with torch.no_grad():
                         img1 = img1.to(device)
                         img2 = img2.to(device)
                         img3 = img3.to(device)
                         camid = camids
                         camids = camids.to(device)
-                        target_view = target_views
-                        target_views = target_views.to(device)
-                        feat = model(img1, img2, img3, cam_label=camids, view_label=camids)
+                        # target_view = target_views
+                        target_view = target_views.to(device)
+                        # feat = model(img1, img2, img3, cam_label=camids, view_label=camids)
+                        if cfg.CAPTION.ENABLE:
+                            if isinstance(captions, torch.Tensor):
+                                print(f"[❌ ERROR] Captions is a Tensor: {captions}")
+                            feat = model(img1, img2, img3, cam_label=camids, view_label=target_view, captions=captions)
+                        else:
+                            feat = model(img1, img2, img3, cam_label=camids, view_label=target_view)
+
+                        if captions is None:
+                            feat = model(img1, img2, img3,
+                                        cam_label=camids, view_label=target_views)
+                        else:
+                            feat = model(img1, img2, img3,
+                                        cam_label=camids, view_label=target_views,
+                                        captions=captions)
+
                         evaluator.update((feat, vid, camid, target_view))
                 cmc, mAP, _, _, _, _, _ = evaluator.compute()
                 if mAP > top[1]:
