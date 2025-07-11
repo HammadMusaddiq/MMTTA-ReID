@@ -102,7 +102,7 @@ class Market1501(BaseImageDataset):
         e.g., prefix = 'Market1501-bbox-train'
         """
         caption_dicts = []
-        for mod in self.i_modality:
+        for mod in self.c_modality:
             mod_suffix = 'visible' if mod == 'RGB' else mod  # fix naming
             filename = f"{prefix}-{mod_suffix}.txt"
             filepath = osp.join(self.caption_dir, filename)

@@ -8,7 +8,7 @@ MODEL:
   IF_WITH_CENTER: 'no'
   NAME: 'transformer'
   NO_MARGIN: True
-  DEVICE_ID: ('2')
+  DEVICE_ID: ('1')
   TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
   STRIDE_SIZE: [16, 16]
   # TRAIN_MODE: 'RNT'
@@ -69,6 +69,6 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/Market1501/4M'
+OUTPUT_DIR: './logs/Market1501/4M-v1'
 
 

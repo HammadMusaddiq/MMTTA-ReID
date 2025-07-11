@@ -51,7 +51,17 @@ def do_train(cfg,
         scheduler.step(epoch)
         model.train()
         # for n_iter, (img1, img2, img3, vid, target_cam, target_view) in enumerate(train_loader):
-        for n_iter, (img1, img2, img3, captions, vid, target_cam, target_view) in enumerate(train_loader):
+        # for n_iter, (img1, img2, img3, captions, vid, target_cam, target_view) in enumerate(train_loader):
+
+        for n_iter, batch in enumerate(train_loader):
+            if len(batch) == 7:              # captions included
+                (img1, img2, img3,
+                captions,
+                vid, target_cam, target_view) = batch
+            else:                            # images only
+                (img1, img2, img3,
+                vid, target_cam, target_view) = batch
+                captions = None
 
             optimizer.zero_grad()
             optimizer_center.zero_grad()
@@ -64,7 +74,20 @@ def do_train(cfg,
             with amp.autocast(enabled=True):
                 # score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view )
                 # score, feat = model(img1, img2, img3, target, cam_label=target_cam, view_label=target_view, captions=captions)
-                score, feat = model(img1, img2, img3, label=target, cam_label=target_cam, view_label=target_view, captions=captions)
+                # score, feat = model(img1, img2, img3, label=target, cam_label=target_cam, view_label=target_view, captions=captions)
+
+                if captions is None:                       # ------- no captions
+                    score, feat = model(img1, img2, img3,
+                                        label=vid,
+                                        cam_label=target_cam,
+                                        view_label=target_view)
+                else:                                      # ------- with captions
+                    score, feat = model(img1, img2, img3,
+                                        label=vid,
+                                        cam_label=target_cam,
+                                        view_label=target_view,
+                                        captions=captions)
+            
                 # loss = loss_fn(score, feat, target, target_cam)
                 loss = loss_fn(score, feat, target, target_cam, captions=feat[4])
 
