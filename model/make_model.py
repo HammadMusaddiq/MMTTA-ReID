@@ -307,131 +307,6 @@ class build_transformer(nn.Module):
         print('Loading pretrained model for finetuning from {}'.format(model_path))
 
 
-class build_transformer_dual(nn.Module):
-    def __init__(self, num_classes, camera_num, view_num, cfg, factory):
-        super(build_transformer_dual, self).__init__()
-        last_stride = cfg.MODEL.LAST_STRIDE
-        model_path = cfg.MODEL.PRETRAIN_PATH
-        model_name = cfg.MODEL.NAME
-        pretrain_choice = cfg.MODEL.PRETRAIN_CHOICE
-        self.cos_layer = cfg.MODEL.COS_LAYER
-        self.neck = cfg.MODEL.NECK
-        self.neck_feat = cfg.TEST.NECK_FEAT
-        self.in_planes = 768
-
-        print('using Transformer_type: {} as a backbone'.format(cfg.MODEL.TRANSFORMER_TYPE))
-
-        if cfg.MODEL.SIE_CAMERA:
-            camera_num = camera_num
-        else:
-            camera_num = 0
-        if cfg.MODEL.SIE_VIEW:
-            view_num = view_num
-        else:
-            view_num = 0
-
-        self.base = factory[cfg.MODEL.TRANSFORMER_TYPE](img_size=cfg.INPUT.SIZE_TRAIN, sie_xishu=cfg.MODEL.SIE_COE,
-                                                        camera=camera_num, view=view_num, stride_size=cfg.MODEL.STRIDE_SIZE, drop_path_rate=cfg.MODEL.DROP_PATH,
-                                                        drop_rate=cfg.MODEL.DROP_OUT,
-                                                        attn_drop_rate=cfg.MODEL.ATT_DROP_RATE)
-
-        if cfg.MODEL.TRANSFORMER_TYPE == 'deit_small_patch16_224_TransReID':
-            self.in_planes = 384
-        if pretrain_choice == 'imagenet':
-            self.base.load_param(model_path, test_time_training=True)
-            print('Loading pretrained ImageNet model......from {}'.format(model_path))
-
-        self.gap = nn.AdaptiveAvgPool2d(1)
-
-        self.num_classes = num_classes
-        self.ID_LOSS_TYPE = cfg.MODEL.ID_LOSS_TYPE
-        if self.ID_LOSS_TYPE == 'arcface':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = Arcface(self.in_planes * 2, self.num_classes,
-                                      s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        elif self.ID_LOSS_TYPE == 'cosface':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = Cosface(self.in_planes * 2, self.num_classes,
-                                      s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        elif self.ID_LOSS_TYPE == 'amsoftmax':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = AMSoftmax(self.in_planes * 2, self.num_classes,
-                                        s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        elif self.ID_LOSS_TYPE == 'circle':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = CircleLoss(self.in_planes * 2, self.num_classes,
-                                         s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        else:
-            self.classifier = nn.Linear(self.in_planes * 2, self.num_classes, bias=False)
-            self.classifier.apply(weights_init_classifier)
-
-        self.bottleneck = nn.BatchNorm1d(self.in_planes * 2)
-        self.bottleneck.bias.requires_grad_(False)
-        self.bottleneck.apply(weights_init_kaiming)
-
-    def _construct_fc_layer(self, fc_dims, input_dim, dropout_p=None):
-        """Constructs fully connected layer
-        Args:
-            fc_dims (list or tuple): dimensions of fc layers, if None, no fc layers are constructed
-            input_dim (int): input dimension
-            dropout_p (float): dropout probability, if None, dropout is unused
-        """
-        if fc_dims is None:
-            self.feature_dim = input_dim
-            return None
-
-        assert isinstance(
-            fc_dims, (list, tuple)
-        ), 'fc_dims must be either list or tuple, but got {}'.format(
-            type(fc_dims)
-        )
-
-        layers = []
-        for dim in fc_dims:
-            layers.append(nn.Linear(input_dim, dim))
-            layers.append(nn.BatchNorm1d(dim))
-            layers.append(nn.ReLU(inplace=True))
-            if dropout_p is not None:
-                layers.append(nn.Dropout(p=dropout_p))
-            input_dim = dim
-
-        self.feature_dim = fc_dims[-1]
-
-        return nn.Sequential(*layers)
-
-    def forward(self, x1, x2, label=None, cam_label=None, view_label=None):
-        global_feat1 = self.base(x1, cam_label=cam_label, view_label=view_label)
-        global_feat2 = self.base(x2, cam_label=cam_label, view_label=view_label)
-
-        global_feat = torch.cat([global_feat1, global_feat2], dim=1)
-        feat = self.bottleneck(global_feat)
-
-        if self.training:
-            if self.ID_LOSS_TYPE in ('arcface', 'cosface', 'amsoftmax', 'circle'):
-                cls_score = self.classifier(feat, label)
-            else:
-                cls_score = self.classifier(feat)
-
-            return cls_score, [global_feat, global_feat1, global_feat2]  # global feature for triplet loss
-        else:
-            if self.neck_feat == 'after':
-                return feat
-            else:
-                return global_feat
-
-    def load_param(self, trained_path):
-        param_dict = torch.load(trained_path)
-        for i in param_dict:
-            self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
-        print('Loading pretrained model from {}'.format(trained_path))
-
-    def load_param_finetune(self, model_path):
-        param_dict = torch.load(model_path)
-        for i in param_dict:
-            self.state_dict()[i].copy_(param_dict[i])
-        print('Loading pretrained model for finetuning from {}'.format(model_path))
-
-
 __factory_T_type = {
     'vit_base_patch16_224_TransReID': vit_base_patch16_224_TransReID,
     'deit_base_patch16_224_TransReID': vit_base_patch16_224_TransReID,
@@ -439,18 +314,13 @@ __factory_T_type = {
     'deit_small_patch16_224_TransReID': deit_small_patch16_224_TransReID
 }
 
-def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy, modality = "three"):
+def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy):
     if cfg.MODEL.NAME == 'transformer':
         if cfg.MODEL.JPM:
             # model = build_transformer_local(num_class, camera_num, view_num, cfg, __factory_T_type, rearrange=cfg.MODEL.RE_ARRANGE)
             print('===========building transformer with JPM module ===========')
         else:
-            if modality == "dual":
-                model = build_transformer_dual(num_class, camera_num, view_num, cfg, __factory_T_type) # 2 modalities
-
-            elif modality == "three":
-                model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type) # 3 modalities
-            
+            model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type)
             print('===========building transformer===========')
     else:
         model = Backbone(num_class, cfg)

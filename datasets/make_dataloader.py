@@ -2,7 +2,7 @@ import torch
 import torchvision.transforms as T
 from torch.utils.data import DataLoader
 
-from .bases import ImageDataset, ImageDataset_dual
+from .bases import ImageDataset
 from timm.data.random_erasing import RandomErasing
 from .sampler import RandomIdentitySampler
 from .dukemtmcreid import DukeMTMCreID
@@ -19,6 +19,9 @@ from .rgbn300 import RGBN300
 from .cuhk03 import CUHK03
 from .prcc import PRCC
 from .celebrity import Celebrity
+from .market1501_MM import Market1501_MM
+
+from datasets.load_combined import load_multi_dataset
 
 __factory = {
     'market1501': Market1501,
@@ -32,7 +35,8 @@ __factory = {
     'rgbn300': RGBN300,
     'cuhk03': CUHK03,
     'prcc': PRCC,
-    'celeb_reid': Celebrity
+    'celeb_reid': Celebrity,
+    'market1501_MM': Market1501_MM,
 }
 
 
@@ -84,6 +88,27 @@ def train_collate_fn_dual(batch):
 #     camids = torch.tensor(camids, dtype=torch.int64)
 #     return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids
 
+# def val_collate_fn(batch):
+#     if isinstance(batch[0][3], list):  # Captions included
+#         imgs_1, imgs_2, imgs_3, captions, pids, camids, viewids, img_paths = zip(*batch)
+#         return (
+#             torch.stack(imgs_1, dim=0),
+#             torch.stack(imgs_2, dim=0),
+#             torch.stack(imgs_3, dim=0),
+#             list(captions),
+#             torch.tensor(pids, dtype=torch.int64),
+#             torch.tensor(camids, dtype=torch.int64),
+#             torch.tensor(viewids, dtype=torch.int64),
+#             # list(img_paths)
+#         )
+#     else:  # No captions
+#         imgs_1, imgs_2, imgs_3, pids, camids, viewids, img_paths = zip(*batch)
+#         pids = torch.tensor(pids, dtype=torch.int64)
+#         viewids = torch.tensor(viewids, dtype=torch.int64)
+#         camids_batch = torch.tensor(camids, dtype=torch.int64)
+#         camids = torch.tensor(camids, dtype=torch.int64)
+#         return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), torch.stack(imgs_3, dim=0), pids, camids, viewids
+
 def val_collate_fn(batch):
     if isinstance(batch[0][3], list):  # Captions included
         imgs_1, imgs_2, imgs_3, captions, pids, camids, viewids, img_paths = zip(*batch)
@@ -116,17 +141,6 @@ def val_collate_fn(batch):
             torch.tensor(viewids, dtype=torch.int64),
         )
 
-def val_collate_fn_dual(batch):
-    """
-    Collate function for validation data, expecting two modalities.
-    Input: list of tuples from __getitem__, each with (img_1, img_2, pid, camid, trackid, filename)
-    Output: stacked tensors for two modalities, PIDs, camera IDs, track IDs, and filenames.
-    """
-    imgs_1, imgs_2, pids, camids, trackids, img_paths = zip(*batch)
-    pids = torch.tensor(pids, dtype=torch.int64)
-    trackids = torch.tensor(trackids, dtype=torch.int64)
-    camids = torch.tensor(camids, dtype=torch.int64)
-    return torch.stack(imgs_1, dim=0), torch.stack(imgs_2, dim=0), pids, camids, trackids, img_paths
 
 def make_dataloader(cfg):
     train_transforms = T.Compose([
@@ -157,8 +171,23 @@ def make_dataloader(cfg):
         else:
             caption_modality = ["RGB"]
 
+    if cfg.DATASETS.MULTI:
+        # use every name in the tuple
+        dataset = load_multi_dataset(cfg, root=cfg.DATASETS.ROOT_DIR)
+        # dataset = merge_datasets(cfg)
+    
+    else:
+        # only the first name in the tuple
+        first_name = cfg.DATASETS.NAMES[0]
+        dataset = __factory[first_name](
+            root       = cfg.DATASETS.ROOT_DIR,
+            i_modality = image_modality,
+            c_modality = caption_modality,
+            verbose    = not cfg.DATASETS.MULTI,
+        )
+
     # dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR)
-    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, i_modality=image_modality, c_modality=caption_modality)  # Pass modality here   
+    # dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, i_modality=image_modality, c_modality=caption_modality)  # Pass modality here   
 
     train_set = ImageDataset(dataset.train, train_transforms)
     # train_set_normal = ImageDataset(dataset.train, val_transforms)
@@ -192,7 +221,7 @@ def make_dataloader(cfg):
             collate_fn=train_collate_fn
         )
     else:
-        print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.DATALOADER.SAMPLER))
+        print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.SAMPLER))
 
     val_set = ImageDataset(dataset.query + dataset.gallery, val_transforms)
 
@@ -206,77 +235,6 @@ def make_dataloader(cfg):
     val_loader_ttt = DataLoader(
         val_set_ttt, batch_size=cfg.SOLVER.IMS_PER_BATCH, shuffle=True, num_workers=num_workers,
         collate_fn=val_collate_fn
-    )
-
-    return train_loader, val_loader_ttt, val_loader, len(dataset.query), num_classes, cam_num, view_num
-
-
-def make_dataloader_dual(cfg, modality):
-    train_transforms = T.Compose([
-        T.Resize(cfg.INPUT.SIZE_TRAIN, interpolation=3),
-        T.Pad(cfg.INPUT.PADDING),
-        T.RandomCrop(cfg.INPUT.SIZE_TRAIN),
-        T.ToTensor(),
-        T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
-        RandomErasing(probability=cfg.INPUT.RE_PROB, mode='pixel', max_count=1, device='cpu'),
-    ])
-
-    val_transforms = T.Compose([
-        T.Resize(cfg.INPUT.SIZE_TEST),
-        T.ToTensor(),
-        T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD)
-    ])
-
-    num_workers = cfg.DATALOADER.NUM_WORKERS
-
-    # dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR)
-    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, modality=modality)  # Pass modality here
-
-    train_set = ImageDataset_dual(dataset.train, train_transforms)
-    num_classes = dataset.num_train_pids
-    cam_num = dataset.num_train_cams
-    view_num = dataset.num_train_vids
-
-    if 'triplet' in cfg.DATALOADER.SAMPLER:
-        if cfg.MODEL.DIST_TRAIN:
-            print('DIST_TRAIN START')
-            mini_batch_size = cfg.SOLVER.IMS_PER_BATCH // dist.get_world_size()
-            data_sampler = RandomIdentitySampler_DDP(dataset.train, cfg.SOLVER.IMS_PER_BATCH, cfg.DATALOADER.NUM_INSTANCE)
-            batch_sampler = torch.utils.data.sampler.BatchSampler(data_sampler, mini_batch_size, True)
-            train_loader = torch.utils.data.DataLoader(
-                train_set,
-                num_workers=num_workers,
-                batch_sampler=batch_sampler,
-                collate_fn=train_collate_fn_dual,
-                pin_memory=True,
-            )
-        else:
-            train_loader = DataLoader(
-                train_set, batch_size=cfg.SOLVER.IMS_PER_BATCH,
-                sampler=RandomIdentitySampler(dataset.train, cfg.SOLVER.IMS_PER_BATCH, cfg.DATALOADER.NUM_INSTANCE),
-                num_workers=num_workers, collate_fn=train_collate_fn_dual
-            )
-    elif cfg.DATALOADER.SAMPLER == 'softmax':
-        print('using softmax sampler')
-        train_loader = DataLoader(
-            train_set, batch_size=cfg.SOLVER.IMS_PER_BATCH, shuffle=True, num_workers=num_workers,
-            collate_fn=train_collate_fn_dual
-        )
-    else:
-        print('unsupported sampler! expected softmax or triplet but got {}'.format(cfg.DATALOADER.SAMPLER))
-
-    val_set = ImageDataset_dual(dataset.query + dataset.gallery, val_transforms)
-
-    val_loader = DataLoader(
-        val_set, batch_size=cfg.TEST.IMS_PER_BATCH, shuffle=False, num_workers=num_workers,
-        collate_fn=val_collate_fn_dual
-    )
-
-    val_set_ttt = ImageDataset_dual(dataset.query + dataset.gallery, val_transforms)
-
-    val_loader_ttt = DataLoader(
-        val_set_ttt, batch_size=cfg.SOLVER.IMS_PER_BATCH, shuffle=True, num_workers=num_workers,
-        collate_fn=val_collate_fn_dual
     )
 
     return train_loader, val_loader_ttt, val_loader, len(dataset.query), num_classes, cam_num, view_num

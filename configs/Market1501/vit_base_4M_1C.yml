@@ -23,10 +23,8 @@ INPUT:
   PIXEL_STD: [0.5, 0.5, 0.5]
 
 DATASETS:
-  # NAMES: ('rgbnt201')
-  # NAMES: ('msmt17')
-  NAMES: ('market1501')
-  # ROOT_DIR: ('E:\\datasets\\')
+  MULTI: True                 # False → use the single dataset in NAMES
+  NAMES: [market1501, market1501_MM]
   ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
 
 DATALOADER:

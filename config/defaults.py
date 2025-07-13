@@ -96,7 +96,8 @@ _C.INPUT.PADDING = 10
 # -----------------------------------------------------------------------------
 _C.DATASETS = CN()
 # List of the dataset names for training, as present in paths_catalog.py
-_C.DATASETS.NAMES = ('market1501')
+# _C.DATASETS.NAMES = ('market1501')
+_C.DATASETS.NAMES = ['market1501']
 # Root directory where datasets should be used (and downloaded if not found)
 _C.DATASETS.ROOT_DIR = ('../data')
 
@@ -204,3 +205,6 @@ _C.CAPTION.LOSS.TRIPLET = True
 _C.CAPTION.LOSS.CONTRASTIVE = True
 _C.CAPTION.LOSS.WEIGHT = 0.5
 _C.MODEL.CAPTION_MODEL_PATH = "bert-base-uncased" 
+
+_C.DATASETS.MULTI = False
+_C.DATASETS.MODE = "full-modal"  # 'plain', 'full-modal', 'attr', 't2i', …

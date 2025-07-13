@@ -128,63 +128,6 @@ class BaseImageDataset(BaseDataset):
         print(df.to_markdown(index=False))
 
 
-# Three modalities (original)
-# class ImageDataset(Dataset):
-#     def __init__(self, dataset, transform=None):
-#         self.dataset = dataset
-#         self.transform = transform
-
-#     def __len__(self):
-#         return len(self.dataset)
-
-#     def __getitem__(self, index):
-#         img_path, pid, camid, trackid = self.dataset[index]
-#         if isinstance(img_path,list):
-#             # print(img_path)
-#             img_1 = read_image(img_path[0])
-#             if self.transform is not None:
-#                 img_1 = self.transform(img_1)
-
-#             a,b,c=img_1.shape
-#             tmp=torch.zeros(a,b,c)
-
-#             if not os.path.exists(img_path[1]):
-#                 img_2 = tmp
-#             else:
-#                 img_2 = read_image(img_path[1])
-#                 if self.transform is not None:
-#                     img_2 = self.transform(img_2)
-
-#             if not os.path.exists(img_path[2]):
-#                 img_3 = tmp
-#             else:
-#                 img_3 = read_image(img_path[2])
-#                 if self.transform is not None:
-#                     img_3 = self.transform(img_3)
-
-#             return img_1, img_2, img_3, pid, camid, trackid, img_path[0].split('/')[-1]
-#         else:
-#             # print(img_path)
-#             img = read_image(img_path)
-#             if img.size == (768, 128):
-#                 # print(1)
-#                 #img1 = img
-#                 img_1 = img.crop((0, 0, 256, 128))
-#                 img_2 = img.crop((256, 0, 512, 128))
-#                 img_3 = img.crop((256, 0, 768, 128))
-#             if img.size == (512, 128):
-#                 # print(2)
-#                 #img1 = img
-#                 img_1 = img.crop((0, 0, 256, 128))
-#                 img_2 = img.crop((256, 0, 512, 128))
-#                 img_3 = img.crop((256, 0, 512, 128))
-#             if self.transform is not None:
-#                 img_1 = self.transform(img_1)
-#                 img_2 = self.transform(img_2)
-#                 img_3 = self.transform(img_3)
-
-#             return img_1, img_2, img_3, pid, camid, trackid, img_path[0].split('/')[-1]
-
 
 class ImageDataset(Dataset):
     def __init__(self, dataset, transform=None):
@@ -235,42 +178,3 @@ class ImageDataset(Dataset):
             return imgs[0], imgs[1], imgs[2], pid, camid, trackid, valid_filenames[0]
 
 
-# Two modalities
-class ImageDataset_dual(Dataset):
-    def __init__(self, dataset, transform=None):
-        self.dataset = dataset
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, index):
-        img_path, pid, camid, trackid = self.dataset[index]
-        if isinstance(img_path, list):
-            # Load first modality (e.g., visible)
-            img_1 = read_image(img_path[0])
-            if self.transform is not None:
-                img_1 = self.transform(img_1)
-
-            # Get shape for placeholder tensor
-            a, b, c = img_1.shape
-            tmp = torch.zeros(a, b, c)
-
-            # Load second modality (e.g., IR or TI)
-            if not os.path.exists(img_path[1]):
-                img_2 = tmp
-            else:
-                img_2 = read_image(img_path[1])
-                if self.transform is not None:
-                    img_2 = self.transform(img_2)
-
-            return img_1, img_2, pid, camid, trackid, img_path[0].split('/')[-1]
-        else:
-            # Handle single image case (not used for multi-modality)
-            img = read_image(img_path)
-            img_1 = img.crop((0, 0, 256, 128))  # First segment
-            img_2 = img.crop((256, 0, 512, 128))  # Second segment
-            if self.transform is not None:
-                img_1 = self.transform(img_1)
-                img_2 = self.transform(img_2)
-            return img_1, img_2, pid, camid, trackid, img_path.split('/')[-1]

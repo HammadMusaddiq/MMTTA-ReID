@@ -1,73 +1,169 @@
-import os.path as osp
+# encoding: utf-8
+"""
+Celebrity-ReID loader (RGB / IR / TI images + optional captions)
+
+Author: sherlock (adapted)
+"""
+
+import os, os.path as osp
+from glob import glob
 from .bases import BaseImageDataset
-import os
+
 
 class Celebrity(BaseImageDataset):
+    """
+    Directory layout (same style as Market):
+
+      Data/
+        ├──Celeb-reID/
+        │    ├── train/
+        │    │   ├── visible/*.jpg
+        │    │   ├── IR/*.jpg
+        │    │   └── TI/*.jpg
+        │    ├── query/   (same three sub-folders)
+        │    ├── gallery/ (same three sub-folders)
+        └── cap_predictions/                  <-- captions root
+            └── Celeb-ReID Captions/           <-- keep txt files here
+                    Celeb-bbox-train-visible.txt
+                    Celeb-bbox-train-IR.txt
+                    ...
+    """
     dataset_dir = 'Celeb-reID'
 
-    def __init__(self, root='', verbose=True, pid_begin=0, **kwargs):
-        super(Celebrity, self).__init__()
-        self.dataset_dir = osp.join(root, self.dataset_dir)
-        self.train_dir = osp.join(self.dataset_dir, 'train')
-        self.query_dir = osp.join(self.dataset_dir, 'query')
-        self.gallery_dir = osp.join(self.dataset_dir, 'gallery')
+    # --------------------------------------------------------------------- #
+    # constructor
+    # --------------------------------------------------------------------- #
+    def __init__(
+        self,
+        root: str = '',
+        verbose: bool = True,
+        pid_begin: int = 0,
+        i_modality=None,
+        c_modality=None,
+        **kwargs,
+    ):
+        super().__init__()
 
-        self._check_before_run()
+        # image / caption modalities requested by the caller
+        self.i_modality = i_modality if i_modality else ['RGB']
+        self.c_modality = c_modality if c_modality else []
+
+        # -----------------------------------------------------------------
+        # directory bookkeeping
+        # -----------------------------------------------------------------
+        self.dataset_dir  = osp.join(root, self.dataset_dir)
+        self.train_dir    = osp.join(self.dataset_dir, 'train')
+        self.query_dir    = osp.join(self.dataset_dir, 'query')
+        self.gallery_dir  = osp.join(self.dataset_dir, 'gallery')
+
+        self.caption_dir            = osp.join(self.dataset_dir, 'cap_predictions')
+        self.train_caption_prefix   = 'Celeb-reID-train'    
+        self.query_caption_prefix   = 'Celeb-reID-query'
+        self.gallery_caption_prefix = 'Celeb-reID-gallery'
+
         self.pid_begin = pid_begin
-        train = self._process_dir(self.train_dir, False)
-        query = self._process_dir(self.query_dir, True)
-        gallery = self._process_dir(self.gallery_dir, False)
+        self._check_before_run()
+
+        # -----------------------------------------------------------------
+        # create splits
+        # -----------------------------------------------------------------
+        train   = self._process_dir(self.train_dir,   self.train_caption_prefix,   relabel=True)
+        query   = self._process_dir(self.query_dir,   self.query_caption_prefix,   relabel=False, is_query=True)
+        gallery = self._process_dir(self.gallery_dir, self.gallery_caption_prefix, relabel=False)
 
         if verbose:
-            print("=> Celebrity loaded with multi-modality support")
-            self.print_dataset_statistics(train, query, gallery)
+            print('=> Celebrity loaded with multi-modality + caption support')
+            self.print_dataset_statistics(train, query, gallery, self.c_modality)
 
-        self.train = train
-        self.query = query
-        self.gallery = gallery
+        # public handles ---------------------------------------------------
+        self.train, self.query, self.gallery = train, query, gallery
 
-        self.num_train_pids, self.num_train_imgs, self.num_train_cams, self.num_train_vids = self.get_imagedata_info(
-            self.train)
-        self.num_query_pids, self.num_query_imgs, self.num_query_cams, self.num_query_vids = self.get_imagedata_info(
-            self.query)
-        self.num_gallery_pids, self.num_gallery_imgs, self.num_gallery_cams, self.num_gallery_vids = self.get_imagedata_info(
-            self.gallery)
+        ( self.num_train_pids,
+          self.num_train_items,
+          self.num_train_cams,
+          self.num_train_vids,
+          self.num_train_imgs,
+          self.num_train_caps ) = self.get_imagedata_info(self.train)
 
+    # --------------------------------------------------------------------- #
+    # helpers
+    # --------------------------------------------------------------------- #
+    @staticmethod
+    def _load_caption_dict(txt_path: str):
+        d = {}
+        if not osp.exists(txt_path):
+            return d
+        with open(txt_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or '\t' not in line:
+                    continue
+                fname, cap = line.split('\t', 1)
+                d[fname.strip()] = cap.strip()
+        return d
+
+    def _load_caption_dicts(self, prefix: str):
+        """Return list[dict] – one caption-dict per *caption* modality."""
+        dicts = []
+        for mod in self.c_modality:                       # ← note: caption list
+            suff = 'visible' if mod == 'RGB' else mod
+            path = osp.join(self.caption_dir, f'{prefix}-{suff}.txt')
+            dicts.append(self._load_caption_dict(path))
+        return dicts
+
+    # --------------------------------------------------------------------- #
+    # directory walker
+    # --------------------------------------------------------------------- #
+    def _process_dir(self, dir_path, prefix, *, relabel=False, is_query=False):
+        """
+        Build list items:
+           ( [img_path_rgb,img_path_ir,img_path_ti], [capR,capI,capT], pid, cam, 1 )
+        If captions disabled ⇒ second element omitted.
+        """
+        vis_files = glob(osp.join(dir_path, 'visible', '*.jpg'))
+        pid_container = { int(osp.basename(p).split('_')[0]) for p in vis_files }
+        pid2label = { pid: idx for idx, pid in enumerate(sorted(pid_container)) }
+
+        cap_dicts = self._load_caption_dicts(prefix) if self.c_modality else None
+        out = []
+
+        for vis_path in vis_files:
+            fname   = osp.basename(vis_path)
+            pid_raw = int(fname.split('_')[0])
+            pid     = self.pid_begin + (pid2label[pid_raw] if relabel else pid_raw)
+
+            # gather image paths ------------------------------------------------
+            img_paths, ok = [], True
+            for mod in self.i_modality:
+                folder = 'visible' if mod == 'RGB' else mod
+                pth    = osp.join(dir_path, folder, fname)
+                if not osp.exists(pth):
+                    ok = False; break
+                img_paths.append(pth)
+            if not ok:
+                continue  # some modality missing – skip sample
+
+            # gather captions ---------------------------------------------------
+            cap_list = []
+            if self.c_modality:
+                for d in cap_dicts:
+                    cap_list.append(d.get(fname, ''))
+
+            camid = 0 if is_query else 1
+            if self.c_modality:
+                out.append((img_paths, cap_list, pid, camid, 1))
+            else:
+                out.append((img_paths,          pid, camid, 1))
+
+        return out
+
+    # --------------------------------------------------------------------- #
+    # misc
+    # --------------------------------------------------------------------- #
     def _check_before_run(self):
-        """Check if all required directories are available before proceeding."""
-        if not osp.exists(self.dataset_dir):
-            raise RuntimeError("'{}' is not available".format(self.dataset_dir))
-        if not osp.exists(self.train_dir):
-            raise RuntimeError("'{}' is not available".format(self.train_dir))
-        if not osp.exists(self.query_dir):
-            raise RuntimeError("'{}' is not available".format(self.query_dir))
-        if not osp.exists(self.gallery_dir):
-            raise RuntimeError("'{}' is not available".format(self.gallery_dir))
+        for p in (self.train_dir, self.query_dir, self.gallery_dir):
+            if not osp.exists(p):
+                raise RuntimeError(f"'{p}' is missing")
 
-    def _process_dir(self, dir_path, is_query):
-        """
-        Process the directory to handle multi-modality images.
-        Assumes subdirectories 'visible', 'IR', and 'TI' exist within dir_path.
-        Returns a list of tuples, each containing a list of image paths (for visible, IR, TI),
-        a person ID, a camera ID, and a constant 1.
-        """
-        dataset = []
-        modality = 'visible'  # Use 'visible' to list the base filenames
-        modality_dir = osp.join(dir_path, modality)
-        for img_name in os.listdir(modality_dir):
-            if img_name.endswith('.jpg'):
-                pid = int(img_name.split('_')[0]) - 1
-                # Construct paths for all three modalities
-                img_path_RGB = osp.join(dir_path, 'visible', img_name)
-                img_path_NI = osp.join(dir_path, 'IR', img_name)
-                img_path_TI = osp.join(dir_path, 'TI', img_name)
 
-                if osp.exists(img_path_RGB) and osp.exists(img_path_NI) and osp.exists(img_path_TI):
-                    img_paths = []
-                    img_paths.append(img_path_RGB)
-                    img_paths.append(img_path_NI)
-                    img_paths.append(img_path_TI)
-                    
-                    cam_id = 0 if is_query else 1
-                    dataset.append((img_paths, self.pid_begin + pid, cam_id, 1))
-        return dataset
+__all__ = ['Celebrity']
