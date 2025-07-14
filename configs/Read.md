@@ -60,6 +60,7 @@
   <li>🧠 Caption-based configs require <code>caption_path</code> and <code>caption_embedding</code> (e.g., <code>bert</code>)</li>
   <li>🔗 Fusion tokens (e.g., CLS) and loss functions are adapted per modality setup</li>
   <li>📂 Dataset paths and preprocessing are customized for CeLReID (<code>/mnt/data/...</code>)</li>
+  <li>📌 <strong>NEW:</strong> All configs now include the <code>DATASETS.MULTI=True</code> and <code>DATASETS.NAMES=[rgbnt201, CelebReID]</code> flag to support combined multimodal training across multiple datasets. This allows the model to be trained on a **combination of datasets**, rather than a single dataset.</li>
 </ul>
 
 <hr>
