@@ -90,10 +90,10 @@ INPUT:
   PADDING: 10
   PIXEL_MEAN: [0.5, 0.5, 0.5]
   PIXEL_STD: [0.5, 0.5, 0.5]
-
 DATASETS:
-  NAMES: ('celeb_reid')
-  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
+  MULTI: True                 # False → use the single dataset in NAMES
+  NAMES: [market1501, CelebReID]
+  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
 
 DATALOADER:
   SAMPLER: 'softmax_triplet'
