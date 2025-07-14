@@ -24,6 +24,11 @@ DATASETS:
   NAMES: ('rgbn300')
   ROOT_DIR: ('E:\\datasets\\')
 
+DATASETS:
+  MULTI: True                 # False → use the single dataset in NAMES
+  NAMES: [rgbn300, CelebReID]
+  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
+
 DATALOADER:
   SAMPLER: 'softmax_triplet'
   NUM_INSTANCE: 4
