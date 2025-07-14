@@ -21,12 +21,13 @@ INPUT:
   PIXEL_MEAN: [0.5, 0.5, 0.5]
   PIXEL_STD: [0.5, 0.5, 0.5]
 
+
 DATASETS:
-  # NAMES: ('rgbnt201')
-  # NAMES: ('msmt17')
-  NAMES: ('cuhk03')
-  # ROOT_DIR: ('E:\\datasets\\')
-  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
+  MULTI: True                 # False → use the single dataset in NAMES
+  NAMES: [Cuhk03, CelebReID]
+  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
+
+
 
 DATALOADER:
   SAMPLER: 'softmax_triplet'
