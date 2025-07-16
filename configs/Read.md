@@ -68,7 +68,7 @@
 <h3>▶️ <strong>Usage</strong></h3>
 <p>To train a model using a specific config file:</p>
 
-<pre><code>python train.py --config-file configs/vit_base_3M-RGB+IR+TI.yml
+<pre><code>python train.py --config_file configs/vit_base_3M-RGB+IR+TI.yml
 </code></pre>
 
 <p><strong>Ensure the following:</strong></p>
