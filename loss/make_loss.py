@@ -1,19 +1,15 @@
-# encoding: utf-8
-"""
-@author:  liaoxingyu
-@contact: sherlockliao01@gmail.com
-"""
 import torch
 import torch.nn.functional as F
 from .softmax_loss import CrossEntropyLabelSmooth, LabelSmoothingCrossEntropy
 from .triplet_loss import TripletLoss
 from .center_loss import CenterLoss
-import torch.nn as nn
 from .multi_modal_margin_loss_new import multiModalMarginLossNew
-from .hard_mine_triplet_loss_multi_modal import MMTripletLoss
 from .multi_modal_id_margin_loss import IDMarginLossNew
-from torch.nn.functional import normalize
 from .contrastive_loss import ContrastiveLoss
+from .vision_language_infonce import VisionLanguageInfoNCELoss
+from .caption_adaptive_triplet import CaptionAdaptiveTripletLoss
+from .distill_l2 import DistillL2Loss
+
 
 
 def make_loss(cfg, num_classes):
@@ -28,6 +24,12 @@ def make_loss(cfg, num_classes):
 
     cap_triplet = TripletLoss(cfg.SOLVER.MARGIN)
     cap_contrastive = ContrastiveLoss(margin=0.3)
+    cap_infonce = VisionLanguageInfoNCELoss(tau=0.08).to(cfg.MODEL.DEVICE)
+    cap_adatri = CaptionAdaptiveTripletLoss(alpha=1.0).to(cfg.MODEL.DEVICE)
+    if cfg.MODEL.DISTILL.ENABLE:
+        distill = DistillL2Loss(weight=1.0).to(cfg.MODEL.DEVICE)
+    else:
+        distill = None
     cap_weight = cfg.CAPTION.LOSS.WEIGHT if use_caption else 0.0
 
     # Loss components
@@ -66,45 +68,55 @@ def make_loss(cfg, num_classes):
             else:
                 TRI_LOSS = triplet(feat, target)[0]
 
+            if distill is not None and isinstance(feat, list) and len(feat) > 5:
+                DIST_LOSS = distill(feat[0], feat[5])
+            else:
+                DIST_LOSS = torch.tensor(0.0, device=target.device)
+
+            
             # -------- CAPTION LOSS --------
             caption_loss = torch.tensor(0.0, device=target.device)
             if use_caption and captions is not None and isinstance(feat, list) and len(feat) > 4:
-                cap_feats = feat[4]  # list of caption modality features
+                cap_feats = feat[4]                             # list OR tensor
                 mod_map = {"RGB": 0, "IR": 1, "TI": 2}
                 valid_mods = 0
 
                 for i, cap_mod in enumerate(caption_modalities):
-                    img_idx = mod_map.get(cap_mod)
-                    if img_idx is None or img_idx >= len(feat) - 1:
+                    img_idx = mod_map.get(cap_mod, -1)
+                    if img_idx < 0 or img_idx >= len(feat) - 1:
                         continue
 
                     img_vec = feat[1 + img_idx]
-                    # cap_vec = cap_feats[i if caption_strategy == "matched" else 0]
-                    cap_vec = cap_feats[i] if caption_strategy == "matched" and cap_feats.size(0) > 1 else cap_feats[0]
-
+                    cap_vec = cap_feats[i] if caption_strategy == "matched" and len(cap_feats) > 1 else cap_feats[0]
 
                     if img_vec is None or cap_vec is None:
                         continue
+                    
+                    cap_vec = cap_vec.to(img_vec.device)
 
-                    img_vec = F.normalize(img_vec, p=2, dim=1)
-                    cap_vec = F.normalize(cap_vec, p=2, dim=1)
+                    # img_vec = F.normalize(img_vec, p=2, dim=1)
+                    # cap_vec = F.normalize(cap_vec, p=2, dim=1)
 
                     if cfg.CAPTION.LOSS.TRIPLET:
                         caption_loss += cap_triplet(cap_vec, target)[0]
+                    if cfg.CAPTION.LOSS.ADAPTIVE_TRIPLET:           # <-- new flag
+                        caption_loss += cap_adatri(img_vec, cap_vec, target)
                     if cfg.CAPTION.LOSS.CONTRASTIVE:
                         caption_loss += cap_contrastive(img_vec, cap_vec, target)
+                    if cfg.CAPTION.LOSS.INFO_NCE:
+                        caption_loss += cap_infonce(img_vec, cap_vec)
 
                     valid_mods += 1
 
                 if valid_mods > 0:
                     caption_loss /= valid_mods
 
-            # -------- FINAL LOSS --------
             total_loss = (
                 cfg.MODEL.ID_LOSS_WEIGHT * ID_LOSS +
                 cfg.MODEL.TRIPLET_LOSS_WEIGHT * TRI_LOSS +
-                cap_weight * caption_loss
-            )
+                cap_weight * caption_loss + 
+                (cfg.MODEL.DISTILL.W * DIST_LOSS if distill is not None else 0.0))
+
             return total_loss
 
     else:
@@ -125,6 +137,12 @@ def make_loss_ttt(cfg, num_classes):    # modified by gu
             # import pdb
             # pdb.set_trace()
             pseudo_label = score.max(1)[1]
+            # --- Entropy minimisation ---------------------------------
+            if cfg.TTA.ENTROPY_ENABLE:
+                ENT_LOSS = entropy_loss(score)
+            else:
+                ENT_LOSS = torch.tensor(0.0, device=score.device)
+
 
             MMM_LOSS = criterion_m(F.normalize(feat[1], p=2, dim=1), F.normalize(feat[2], p=2, dim=1), F.normalize(feat[3], p=2, dim=1), pseudo_label)
             if pseudo_label[0] != pseudo_label[1]:
@@ -132,7 +150,9 @@ def make_loss_ttt(cfg, num_classes):    # modified by gu
                 TTT_LOSS = MMM_LOSS + IDM_LOSS
             else:
                 TTT_LOSS = MMM_LOSS
-            return cfg.MODEL.TRIPLET_LOSS_WEIGHT * TTT_LOSS
+            # return cfg.MODEL.TRIPLET_LOSS_WEIGHT * TTT_LOSS
+            return (cfg.MODEL.TRIPLET_LOSS_WEIGHT * TTT_LOSS + cfg.TTA.ENTROPY_W * ENT_LOSS)
+
 
 
     else:
