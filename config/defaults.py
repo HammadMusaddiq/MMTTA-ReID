@@ -204,7 +204,20 @@ _C.CAPTION.LOSS = CN()
 _C.CAPTION.LOSS.TRIPLET = True
 _C.CAPTION.LOSS.CONTRASTIVE = True
 _C.CAPTION.LOSS.WEIGHT = 0.5
+_C.CAPTION.LOSS.INFO_NCE = True 
+_C.CAPTION.LOSS.ADAPTIVE_TRIPLET = True
 _C.MODEL.CAPTION_MODEL_PATH = "bert-base-uncased" 
 
 _C.DATASETS.MULTI = False
 _C.DATASETS.MODE = "full-modal"  # 'plain', 'full-modal', 'attr', 't2i', …
+
+_C.MODEL.DISTILL = CN()
+_C.MODEL.DISTILL.ENABLE = False
+_C.MODEL.DISTILL.W = 1.0  # or whatever default value makes sense
+
+_C.TRAIN = CN()
+_C.TRAIN.ADAPTER_ONLY = False  # or True, depending on your default
+
+_C.TTA = CN()
+_C.TTA.ENTROPY_ENABLE = True
+_C.TTA.ENTROPY_W = 1.0
