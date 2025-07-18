@@ -134,7 +134,16 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
+class AdapterBlock(nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.down = nn.Linear(embed_dim, embed_dim // 2)
+        self.act  = nn.GELU()
+        self.up   = nn.Linear(embed_dim // 2, embed_dim)
+        nn.init.zeros_(self.up.weight)         # start as identity
 
+    def forward(self, x):
+        return x + self.up(self.act(self.down(x)))
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
@@ -310,6 +319,8 @@ class TransReID(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.mod_tokens = nn.Parameter(torch.zeros(3, 1, embed_dim))  # RGB, IR, TI
+        nn.init.trunc_normal_(self.mod_tokens, std=.02)
         self.cam_num = camera
         self.view_num = view
         self.sie_xishu = sie_xishu
@@ -344,6 +355,8 @@ class TransReID(nn.Module):
             for i in range(depth)])
 
         self.norm = norm_layer(embed_dim)
+        self.edit_adapter1 = AdapterBlock(self.embed_dim)
+        self.edit_adapter2 = AdapterBlock(self.embed_dim)
 
         # Classifier head
         self.fc = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -372,12 +385,14 @@ class TransReID(nn.Module):
         self.num_classes = num_classes
         self.fc = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, camera_id, view_id):
+    def forward_features(self, x, mod_id: int, camera_id=None, view_id=None):
         B = x.shape[0]
         x = self.patch_embed(x)
 
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-        x = torch.cat((cls_tokens, x), dim=1)
+        # cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        # x = torch.cat((cls_tokens, x), dim=1)
+        mod_tok = self.mod_tokens[mod_id].expand(B, -1, -1)  # [B,1,C]
+        x = torch.cat([mod_tok, x], dim=1)
 
         if self.cam_num > 0 and self.view_num > 0:
             x = x + self.pos_embed + self.sie_xishu * self.sie_embed[camera_id * self.view_num + view_id]
@@ -400,11 +415,16 @@ class TransReID(nn.Module):
                 x = blk(x)
 
             x = self.norm(x)
+            x = self.edit_adapter1(x)
+            x = self.edit_adapter2(x)
 
             return x[:, 0]
 
-    def forward(self, x, cam_label=None, view_label=None):
-        x = self.forward_features(x, cam_label, view_label)
+    # def forward(self, x, cam_label=None, view_label=None):
+    #     x = self.forward_features(x, cam_label, view_label)
+    #     return x
+    def forward(self, x, mod_id: int = 0, cam_label=None, view_label=None):
+        x = self.forward_features(x, mod_id, cam_label, view_label)
         return x
 
     def load_param(self, model_path, test_time_training=False):
