@@ -14,7 +14,8 @@ import argparse
 from config import cfg
 
 torch.cuda.empty_cache()
-
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
