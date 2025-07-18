@@ -6,6 +6,8 @@ from .backbones.vit_pytorch import vit_base_patch16_224_TransReID, vit_small_pat
 from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
+from model.nomic_backbones import FrozenNomicVision, FrozenNomicText
+
 
 def shuffle_unit(features, shift, group, begin=1):
 
@@ -80,6 +82,7 @@ class Backbone(nn.Module):
         self.classifier.apply(weights_init_classifier)
 
         self.bottleneck = nn.BatchNorm1d(self.in_planes*3)
+        
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
 
@@ -129,26 +132,48 @@ class Backbone(nn.Module):
 class build_transformer(nn.Module):
     def __init__(self, num_classes, camera_num, view_num, cfg, factory):
         super(build_transformer, self).__init__()
+        # --- Static dims ---
+        self.vit_dim   = 768            # ViT backbone width
+        self.txt_dim   = 1024           # Nomic text encoder output dim
+        self.in_planes = self.vit_dim   # Default, may be overridden for DeiT-small
+
+        # --- Configs ---
         last_stride = cfg.MODEL.LAST_STRIDE
         model_path = cfg.MODEL.PRETRAIN_PATH
         model_name = cfg.MODEL.NAME
         pretrain_choice = cfg.MODEL.PRETRAIN_CHOICE
+
         self.cos_layer = cfg.MODEL.COS_LAYER
         self.neck = cfg.MODEL.NECK
         self.neck_feat = cfg.TEST.NECK_FEAT
-        self.in_planes = 768
         self.use_caption = cfg.CAPTION.ENABLE
+        self.distill_on  = cfg.MODEL.DISTILL.ENABLE
         caption_model_path = cfg.MODEL.CAPTION_MODEL_PATH
 
+        # --- Caption encoder and tokenizer ---
         if self.use_caption:
             self.caption_strategy = cfg.CAPTION.STRATEGY
             self.caption_modalities = cfg.CAPTION.MODALITY if self.caption_strategy == "matched" else ["RGB"]
-            self.text_encoder = AutoModel.from_pretrained(caption_model_path, local_files_only=True)
-            self.tokenizer = AutoTokenizer.from_pretrained(caption_model_path, local_files_only=True)
-            self.text_proj = nn.Linear(768, self.in_planes * len(self.caption_modalities))  # map BERT [CLS] to feature space
+            self.text_encoder = FrozenNomicText(
+                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text"
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained("nomic-ai/nomic-embed-text-v1.5")
+        else:
+            self.caption_strategy = None
+            self.caption_modalities = None
+            self.text_encoder = None
+            self.tokenizer = None
+
+        # --- Teacher vision encoder ---
+        self.teacher_vis = (
+            FrozenNomicVision(
+                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_vision"
+            ).eval() if self.distill_on else None
+        )
 
         print('using Transformer_type: {} as a backbone'.format(cfg.MODEL.TRANSFORMER_TYPE))
 
+        # --- Camera/view logic ---
         if cfg.MODEL.SIE_CAMERA:
             camera_num = camera_num
         else:
@@ -158,52 +183,88 @@ class build_transformer(nn.Module):
         else:
             view_num = 0
 
-        self.base = factory[cfg.MODEL.TRANSFORMER_TYPE](img_size=cfg.INPUT.SIZE_TRAIN, sie_xishu=cfg.MODEL.SIE_COE,
-                                                        camera=camera_num, view=view_num, stride_size=cfg.MODEL.STRIDE_SIZE, drop_path_rate=cfg.MODEL.DROP_PATH,
-                                                        drop_rate= cfg.MODEL.DROP_OUT,
-                                                        attn_drop_rate=cfg.MODEL.ATT_DROP_RATE)
+        # --- Backbone ---
+        self.base = factory[cfg.MODEL.TRANSFORMER_TYPE](
+            img_size=cfg.INPUT.SIZE_TRAIN,
+            sie_xishu=cfg.MODEL.SIE_COE,
+            camera=camera_num,
+            view=view_num,
+            stride_size=cfg.MODEL.STRIDE_SIZE,
+            drop_path_rate=cfg.MODEL.DROP_PATH,
+            drop_rate=cfg.MODEL.DROP_OUT,
+            attn_drop_rate=cfg.MODEL.ATT_DROP_RATE
+        )
 
+        # --- Override for DeiT-small ---
         if cfg.MODEL.TRANSFORMER_TYPE == 'deit_small_patch16_224_TransReID':
             self.in_planes = 384
+
+        # ---------- projections that depend on final in_planes ----------
+        if self.use_caption:
+            self.cap_proj = nn.Linear(self.txt_dim, self.in_planes, bias=False)
+            self.cap_proj.apply(weights_init_kaiming)
+        else:
+            self.cap_proj = None
+
+        # if self.distill_on:
+        #     self.teacher_proj = nn.Linear(self.txt_dim, self.in_planes, bias=False)
+        #     self.teacher_proj.apply(weights_init_kaiming)
+        # else:
+        #     self.teacher_proj = None
+        if self.distill_on:
+            # Dynamically determine teacher output dim
+            with torch.no_grad():
+                dummy = torch.randn(1, 3, 224, 224)
+                vis_dim = self.teacher_vis(dummy).shape[-1]
+            self.teacher_proj = nn.Linear(vis_dim, self.in_planes, bias=False)
+            self.teacher_proj.apply(weights_init_kaiming)
+        else:
+            self.teacher_proj = None
+        # ----------------------------------------------------------------
+
         if pretrain_choice == 'imagenet':
-            # # training 
-            # self.base.load_param(model_path)
-            
-            # # test time training 
             self.base.load_param(model_path, test_time_training=True)
-            
             print('Loading pretrained ImageNet model......from {}'.format(model_path))
 
         self.gap = nn.AdaptiveAvgPool2d(1)
-
-        # self.num_classes = 171
         self.num_classes = num_classes
         self.ID_LOSS_TYPE = cfg.MODEL.ID_LOSS_TYPE
-        if self.ID_LOSS_TYPE == 'arcface':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE,cfg.SOLVER.COSINE_SCALE,cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = Arcface(self.in_planes, self.num_classes,
-                                      s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        elif self.ID_LOSS_TYPE == 'cosface':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE,cfg.SOLVER.COSINE_SCALE,cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = Cosface(self.in_planes, self.num_classes,
-                                      s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        elif self.ID_LOSS_TYPE == 'amsoftmax':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE,cfg.SOLVER.COSINE_SCALE,cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = AMSoftmax(self.in_planes, self.num_classes,
-                                        s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        elif self.ID_LOSS_TYPE == 'circle':
-            print('using {} with s:{}, m: {}'.format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
-            self.classifier = CircleLoss(self.in_planes, self.num_classes,
-                                        s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
-        else:
-            self.classifier = nn.Linear(self.in_planes*3, self.num_classes, bias=False)
-            self.classifier.apply(weights_init_classifier)
 
-        
-
-        self.bottleneck = nn.BatchNorm1d(self.in_planes*3)
+        self.bottleneck = nn.BatchNorm1d(self.in_planes * 3)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
+
+        # --- Metric-learning head (classifier) ---
+        head_in = self.in_planes * 3
+        if self.ID_LOSS_TYPE == 'arcface':
+            self.classifier = Arcface(head_in, self.num_classes,
+                                    s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
+        elif self.ID_LOSS_TYPE == 'cosface':
+            self.classifier = Cosface(head_in, self.num_classes,
+                                    s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
+        elif self.ID_LOSS_TYPE == 'amsoftmax':
+            self.classifier = AMSoftmax(head_in, self.num_classes,
+                                    s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
+        elif self.ID_LOSS_TYPE == 'circle':
+            self.classifier = CircleLoss(head_in, self.num_classes,
+                                        s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
+        else:
+            self.classifier = nn.Linear(head_in, self.num_classes, bias=False)
+            self.classifier.apply(weights_init_classifier)
+
+        # self.bottleneck.bias.requires_grad_(False)
+        # self.bottleneck.apply(weights_init_kaiming)
+        # ---------------- Adapter-only finetune -----------------
+        if getattr(cfg.TRAIN, 'ADAPTER_ONLY', False):
+            for p in self.base.parameters():
+                p.requires_grad_(False)          # freeze backbone
+            # enable adapters
+            for m in self.base.modules():
+                if isinstance(m, AdapterBlock):
+                    for p in m.parameters():
+                        p.requires_grad_(True)
+            print('[Adapter-only] backbone frozen; adapters trainable.')
+        # --------------------------------------------------------
 
 
 
@@ -239,45 +300,39 @@ class build_transformer(nn.Module):
 
 
     def forward(self, x1, x2, x3, label=None, cam_label= None, view_label=None, captions=None):
-        global_feat1 = self.base(x1, cam_label=cam_label, view_label=view_label)
-        global_feat2 = self.base(x2, cam_label=cam_label, view_label=view_label)
-        global_feat3 = self.base(x3, cam_label=cam_label, view_label=view_label)
+        global_feat1 = self.base(x1, 0, cam_label=cam_label, view_label=view_label)  # RGB
+        global_feat2 = self.base(x2, 1, cam_label=cam_label, view_label=view_label)  # IR
+        global_feat3 = self.base(x3, 2, cam_label=cam_label, view_label=view_label)  # TI
 
         global_feat = torch.cat([global_feat1, global_feat2 , global_feat3], dim=1)
         feat = self.bottleneck(global_feat)
 
         text_feats = None  # Ensure always defined
+
+        
         # if self.use_caption and captions is not None:
-        #     # captions: list of strings or list of list of strings
-        #     if isinstance(captions[0], list):  # single caption per sample
-        #         inputs = self.tokenizer(captions, padding=True, truncation=True, return_tensors="pt").to(x1.device)
-        #         outputs = self.text_encoder(**inputs)
-        #         cls_emb = outputs.last_hidden_state[:, 0]  # [B, 768]
-        #         projected = self.text_proj(cls_emb)        # [B, #modalities * dim]
-        #         # Reshape to [#modalities, B, dim]
-        #         text_feats = projected.view(-1, len(self.caption_modalities), self.in_planes).permute(1, 0, 2)
-        #         # → [#caps, B, D]
-        #     else:
-        #         raise ValueError("Expected list of strings for captions")
-
+        #     tokenised = self.tokenizer(
+        #         captions, padding=True, truncation=True,
+        #         return_tensors="pt").to(x1.device)
+        #     cap_cls = self.text_encoder(token_ids=tokenised)   # [B, 1024]
+        #     #text_feats = self.cap_proj(cap_cls)                # [B, 768]
+        #     #text_feats = self.text_encoder(token_ids=tokenised)
+        #     text_feats = self.cap_proj(cap_cls) if self.cap_proj is not None else None  # [B, in_planes]
+        # else:
+        #     text_feats = None
         if self.use_caption and captions is not None:
-            # captions: list of strings or list of list of strings
-            if isinstance(captions[0], str):
-                # Already a list of single string per sample
-                processed_captions = captions
-            elif isinstance(captions[0], list) and isinstance(captions[0][0], str):
-                # List of multiple captions per sample — pick the first one
-                processed_captions = [cap_list[0] for cap_list in captions]
-            else:
-                raise ValueError("Captions should be a list of strings or list of list of strings.")
-
-            # Tokenize and encode
-            inputs = self.tokenizer(processed_captions, padding=True, truncation=True, return_tensors="pt").to(x1.device)
-            outputs = self.text_encoder(**inputs)
-            cls_emb = outputs.last_hidden_state[:, 0]  # [B, 768]
-            projected = self.text_proj(cls_emb)        # [B, #modalities * dim]
-            text_feats = projected.view(-1, len(self.caption_modalities), self.in_planes).permute(1, 0, 2)
-            # text_feats: [#caption_modalities, B, dim]
+            inputs = self.tokenizer(
+                captions, padding=True, truncation=True,
+                return_tensors="pt"
+            ).to(x1.device)
+            # FrozenNomicText returns pooled CLS already; if it returns full sequence,
+            # use `.last_hidden_state[:,0]`
+            cap_cls = self.text_encoder(**inputs)
+            cap_cls = self.cap_proj(cap_cls) if self.cap_proj is not None else cap_cls  # [B, D]
+            text_feats = cap_cls.unsqueeze(0).repeat(
+                len(self.caption_modalities), 1, 1)  # [L, B, D]
+        else:
+            text_feats = None
 
 
         if self.training:
@@ -286,7 +341,17 @@ class build_transformer(nn.Module):
             else:
                 cls_score = self.classifier(feat)
 
-            return cls_score, [global_feat, global_feat1, global_feat2, global_feat3, text_feats]  # feat[4] is cap feat
+            feat_list = [global_feat, global_feat1, global_feat2, global_feat3, text_feats]
+            # teacher CLS appended iff distillation ON
+            if self.teacher_vis is not None:
+                    with torch.no_grad():
+                        t_raw = self.teacher_vis(x1)        # RGB input
+                    if self.teacher_proj is not None:
+                        t_cls = self.teacher_proj(t_raw) 
+                        feat_list.append(t_cls)
+            return cls_score, feat_list
+
+        
 
         else:
             if self.neck_feat == 'after':
@@ -315,6 +380,8 @@ __factory_T_type = {
 }
 
 def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy):
+
+
     if cfg.MODEL.NAME == 'transformer':
         if cfg.MODEL.JPM:
             # model = build_transformer_local(num_class, camera_num, view_num, cfg, __factory_T_type, rearrange=cfg.MODEL.RE_ARRANGE)
