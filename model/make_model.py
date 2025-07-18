@@ -7,7 +7,7 @@ from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 from model.nomic_backbones import FrozenNomicVision, FrozenNomicText
-
+from sentence_transformers import SentenceTransformer
 
 def shuffle_unit(features, shift, group, begin=1):
 
@@ -155,9 +155,9 @@ class build_transformer(nn.Module):
             self.caption_strategy = cfg.CAPTION.STRATEGY
             self.caption_modalities = cfg.CAPTION.MODALITY if self.caption_strategy == "matched" else ["RGB"]
             self.text_encoder = FrozenNomicText(
-                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text"
+                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/"
             )
-            self.tokenizer = AutoTokenizer.from_pretrained("nomic-ai/nomic-embed-text-v1.5")
+            self.tokenizer = SentenceTransformer("/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/", local_files_only=True, trust_remote_code=True)
         else:
             self.caption_strategy = None
             self.caption_modalities = None
@@ -167,7 +167,7 @@ class build_transformer(nn.Module):
         # --- Teacher vision encoder ---
         self.teacher_vis = (
             FrozenNomicVision(
-                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_vision"
+                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_vision/"
             ).eval() if self.distill_on else None
         )
 
