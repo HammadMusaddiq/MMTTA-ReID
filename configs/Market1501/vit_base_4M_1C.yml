@@ -1,17 +1,20 @@
 MODEL:
   PRETRAIN_CHOICE: 'imagenet'
   # PRETRAIN_PATH: 'C:\Users\ziwang\.conda\jx_vit_base_p16_224-80ecf9dd.pth'
-  PRETRAIN_PATH: 'models/jx_vit_base_p16_224-80ecf9dd.pth'
-  CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased"
+  PRETRAIN_PATH: 'model/jx_vit_base_p16_224-80ecf9dd.pth'
+  CAPTION_MODEL_PATH: "model/bert-base-uncased"
   METRIC_LOSS_TYPE: 'triplet'
   IF_LABELSMOOTH: 'off'
   IF_WITH_CENTER: 'no'
   NAME: 'transformer'
   NO_MARGIN: True
-  DEVICE_ID: ('1')
+  DEVICE_ID: ('4')
   TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
   STRIDE_SIZE: [16, 16]
   # TRAIN_MODE: 'RNT'
+  DISTILL:
+    ENABLE: False
+    W: 0.1          # λ_dist in the paper
 
 INPUT:
   SIZE_TRAIN: [256, 128]
@@ -23,9 +26,9 @@ INPUT:
   PIXEL_STD: [0.5, 0.5, 0.5]
 
 DATASETS:
-  MULTI: True                 # False → use the single dataset in NAMES
+  MULTI: False                 # False → use the single dataset in NAMES
   NAMES: [market1501, market1501_MM]
-  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
+  ROOT_DIR: ('/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-4M-v1-Umair/data/Market1501/')
 
 DATALOADER:
   SAMPLER: 'softmax_triplet'
@@ -38,15 +41,19 @@ CAPTION:
   ENABLE: True
   STRATEGY: "rgb_only"   # or "rgb_only" / "matched"
   LOSS:
-    TRIPLET: True
+    INFO_NCE: True   # new switch
+    TRIPLET: False
+    ADAPTIVE_TRIPLET: True
     CONTRASTIVE: True
     WEIGHT: 0.5
-
+    
+TRAIN:
+  ADAPTER_ONLY: True
 SOLVER:
   OPTIMIZER_NAME: 'SGD'
   MAX_EPOCHS: 120
   BASE_LR: 0.008
-  IMS_PER_BATCH: 64
+  IMS_PER_BATCH: 128
   WARMUP_METHOD: 'linear'
   LARGE_FC_LR: False
   CHECKPOINT_PERIOD: 20
@@ -56,6 +63,11 @@ SOLVER:
   WEIGHT_DECAY_BIAS: 1e-4
   BIAS_LR_FACTOR: 2
   # SEED: 1
+
+TTA:
+  ENTROPY_ENABLE: True
+  ENTROPY_W:      1.0
+
 
 TEST:
   EVAL: True
@@ -68,5 +80,3 @@ TEST:
   FEAT_NORM: 'yes'
 
 OUTPUT_DIR: './logs/Market1501/4M-v1-1C'
-
-
