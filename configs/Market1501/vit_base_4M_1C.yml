@@ -8,7 +8,7 @@ MODEL:
   IF_WITH_CENTER: 'no'
   NAME: 'transformer'
   NO_MARGIN: True
-  DEVICE_ID: ('4')
+  DEVICE_ID: ('2')
   TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
   STRIDE_SIZE: [16, 16]
   # TRAIN_MODE: 'RNT'
@@ -28,7 +28,7 @@ INPUT:
 DATASETS:
   MULTI: False                 # False → use the single dataset in NAMES
   NAMES: [market1501, market1501_MM]
-  ROOT_DIR: ('/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-4M-v1-Umair/data/Market1501/')
+  ROOT_DIR: ('/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/data/Market1501/')
 
 DATALOADER:
   SAMPLER: 'softmax_triplet'
