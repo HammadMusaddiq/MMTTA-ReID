@@ -22,14 +22,18 @@ def do_train(cfg,
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
     eval_period = cfg.SOLVER.EVAL_PERIOD
 
-    device = "cuda"
+    # device = "cuda"
+    device = torch.device("cuda", local_rank)
+
     epochs = cfg.SOLVER.MAX_EPOCHS
 
     logger = logging.getLogger("transreid.train")
     logger.info('start training')
     _LOCAL_PROCESS_GROUP = None
     if device:
-        model.to(local_rank)
+        # model.to(local_rank)
+        model.to(device)
+
         if torch.cuda.device_count() > 1 and cfg.MODEL.DIST_TRAIN:
             print('Using {} GPUs for training'.format(torch.cuda.device_count()))
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=True)
@@ -52,6 +56,9 @@ def do_train(cfg,
         model.train()
         # for n_iter, (img1, img2, img3, vid, target_cam, target_view) in enumerate(train_loader):
         # for n_iter, (img1, img2, img3, captions, vid, target_cam, target_view) in enumerate(train_loader):
+
+        if hasattr(train_loader.sampler, "set_epoch"):
+            train_loader.sampler.set_epoch(epoch)
 
         for n_iter, batch in enumerate(train_loader):
             if len(batch) == 7:              # captions included
@@ -125,33 +132,61 @@ def do_train(cfg,
             logger.info("Epoch {} done. Time per batch: {:.3f}[s] Speed: {:.1f}[samples/s]"
                     .format(epoch, time_per_batch, train_loader.batch_size / time_per_batch))
 
-        # if epoch % checkpoint_period == 0:
-        #     if cfg.MODEL.DIST_TRAIN:
-        #         if dist.get_rank() == 0:
-        #             torch.save(model.state_dict(),
-        #                        os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_{}.pth'.format(epoch)))
-        #     else:
-        #         torch.save(model.state_dict(),
-        #                    os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_{}.pth'.format(epoch)))
+        if epoch % checkpoint_period == 0:
+            if cfg.MODEL.DIST_TRAIN:
+                if dist.get_rank() == 0:
+                    torch.save(model.state_dict(),
+                               os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_{}.pth'.format(epoch)))
+            else:
+                torch.save(model.state_dict(),
+                           os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_{}.pth'.format(epoch)))
 
         if epoch % eval_period == 0:
             if cfg.MODEL.DIST_TRAIN:
                 if dist.get_rank() == 0:
                     model.eval()
-                    for n_iter, (img1, img2, img3, vid, camid, camids, target_view, _) in enumerate(val_loader):
+                    # for n_iter, (img1, img2, img3, vid, camid, camids, target_view, _) in enumerate(val_loader):
+                    for batch in val_loader:
+                        if len(batch) == 7:                       # loader WITH captions
+                            (img1, img2, img3,
+                            captions,           # <-- index 3
+                            vid, camids, target_views) = batch
+                        else:                                     # loader WITHOUT captions
+                            (img1, img2, img3,
+                            vid, camids, target_views) = batch
+                            captions = None
+                              
                         with torch.no_grad():
                             img1 = img1.to(device)
                             img2 = img2.to(device)
                             img3 = img3.to(device)
+                            camid = camids
                             camids = camids.to(device)
-                            target_view = target_view.to(device)
-                            feat = model(img1, img2, img3, cam_label=camids, view_label=target_view)
-                            evaluator.update((feat, vid, camid))
+                            # target_view = target_views
+                            target_view = target_views.to(device)
+                            # feat = model(img1, img2, img3, cam_label=camids, view_label=camids)
+                            if cfg.CAPTION.ENABLE:
+                                if isinstance(captions, torch.Tensor):
+                                    print(f"[❌ ERROR] Captions is a Tensor: {captions}")
+                                feat = model(img1, img2, img3, cam_label=camids, view_label=target_view, captions=captions)
+                            else:
+                                feat = model(img1, img2, img3, cam_label=camids, view_label=target_view)
+
+                            if captions is None:
+                                feat = model(img1, img2, img3,
+                                            cam_label=camids, view_label=target_views)
+                            else:
+                                feat = model(img1, img2, img3,
+                                            cam_label=camids, view_label=target_views,
+                                            captions=captions)
+
+                            evaluator.update((feat, vid, camid, target_view))
                     cmc, mAP, _, _, _, _, _ = evaluator.compute()
                     logger.info("Validation Results - Epoch: {}".format(epoch))
                     logger.info("mAP: {:.1%}".format(mAP))
                     for r in [1, 5, 10]:
                         logger.info("CMC curve, Rank-{:<3}:{:.1%}".format(r, cmc[r - 1]))
+                    logger.info('Best result: {} {:.1%} {:.1%} {:.1%} {:.1%}' .format(top[0], top[1], top[2], top[3], top[4]))
                     torch.cuda.empty_cache()
             else:
                 model.eval()
