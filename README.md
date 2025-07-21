@@ -12,19 +12,19 @@ This repository implements **MMTTA**, our framework for **Multi-Modal Person Re-
 
 - **Distillation L2 Loss**: Aligns student and teacher feature representations via normalized L2 distance:
 
-  ![Eq1](Math-Eqs/Eq1.png)
+  ![Eq1](Eq1.png)
 
   Implements distillation between ViT (student) and nomic (teacher) features.
 
 - **Multi-Modal Margin Loss**: Enforces a margin between modality-specific identity centers by penalizing the worst-case pair. For modalities $i,j\in\{\mathrm{RGB},\mathrm{IR},\mathrm{TI}\}$ with centers $c_i, c_j$ and margin $m$:
 
-  ![Eq2](Math-Eqs/Eq2.png)
+  ![Eq2](Eq2.png)
 
   where $N$ is the number of identities in the batch.
 
 - **Vision–Language InfoNCE Loss**: Aligns image and text features using a temperature-scaled InfoNCE objective. Given a batch of size $B$, visual features $f_v^i$ and text features $f_t^i$, and temperature $\tau$:
 
-  ![Eq3](Math-Eqs/Eq3.png)
+  ![Eq3](Eq3.png)
 
 ---
 
