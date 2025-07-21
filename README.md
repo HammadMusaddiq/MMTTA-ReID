@@ -6,33 +6,28 @@ This repository implements **MMTTA**, our framework for **Multi-Modal Person Re-
 
 ## Features
 
+- **Cross-Identity Inter-Modal Loss (CIM)**: Constrains distances between inter-modal features of different identities to enhance embedding discriminability.
+
+- **Multi-Modal Adaptation**: Leverages unlabeled test samples across modalities for on-the-fly fine-tuning before inference.
+
 - **Distillation L2 Loss**: Aligns student and teacher feature representations via normalized L2 distance:
 
-  $$
-  L_{distill} = \| \frac{f_{stu}}{\|f_{stu}\|_2} - \frac{f_{tea}}{\|f_{tea}\|_2} \|_2^2
-  $$
+  ![Eq1](Math-Eqs/Eq1.png)
 
-  Implements simple distillation between ViT (student) and nomic (teacher) features. fileciteturn0file0
+  Implements distillation between ViT (student) and nomic (teacher) features.
 
-- **Multi-Modal Margin Loss**: Enforces a margin between modality-specific identity centers by penalizing the worst-case pair:
+- **Multi-Modal Margin Loss**: Enforces a margin between modality-specific identity centers by penalizing the worst-case pair. For modalities $i,j\in\{\mathrm{RGB},\mathrm{IR},\mathrm{TI}\}$ with centers $c_i, c_j$ and margin $m$:
 
-  For modalities \$i,j\in{RGB,IR,TI}\$ with centers \$c\_i, c\_j\$ and margin \$m\$:
+  ![Eq2](Math-Eqs/Eq2.png)
 
-  $$
-  L_{margin} = \frac{1}{N}\sum_{k=1}^N \max_{\{i,j\}} \bigl| m - d(c_i^k, c_j^k) \bigr|
-  $$
+  where $N$ is the number of identities in the batch.
 
-  where \$d(\cdot,\cdot)\$ is L2 distance and \$N\$ is number of identities in batch. fileciteturn0file1
+- **Vision–Language InfoNCE Loss**: Aligns image and text features using a temperature-scaled InfoNCE objective. Given a batch of size $B$, visual features $f_v^i$ and text features $f_t^i$, and temperature $\tau$:
 
-- **Vision–Language InfoNCE Loss**: Aligns image and text features using a temperature-scaled InfoNCE objective:
-
-  $$
-  L_{InfoNCE} = -\frac{1}{B} \sum_{i=1}^B \log \frac{\exp(\cos(f_v^i,f_t^i)/\tau)}{\sum_{j=1}^B \exp(\cos(f_v^i,f_t^j)/\tau)}
-  $$
-
-  where \$B\$ is batch size and \$\tau\$ is temperature. fileciteturn0file2
+  ![Eq3](Math-Eqs/Eq3.png)
 
 ---
+
 
 ## Environment & Dependencies
 
