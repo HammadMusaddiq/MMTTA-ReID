@@ -6,10 +6,6 @@ This repository implements **MMTTA**, our framework for **Multi-Modal Person Re-
 
 ## Features
 
-- **Cross-Identity Inter-Modal Loss (CIM)**: Constrains distances between inter-modal features of different identities to enhance embedding discriminability.
-
-- **Multi-Modal Adaptation**: Leverages unlabeled test samples across modalities for on-the-fly fine-tuning before inference.
-
 - **Distillation L2 Loss**: Aligns student and teacher feature representations via normalized L2 distance:
 
   ![Eq1](Eq1.png)
