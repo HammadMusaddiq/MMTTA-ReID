@@ -1,7 +1,7 @@
 import torch.nn as nn, torch
 #from transformers import AutoModel
 from transformers import AutoModel, AutoImageProcessor
-from sentence_transformers import SentenceTransformer
+#from sentence_transformers import SentenceTransformer
 class FrozenNomicVision(nn.Module):
     def __init__(self, ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_vision/"):
         super().__init__()
@@ -15,7 +15,7 @@ class FrozenNomicVision(nn.Module):
 class FrozenNomicText(nn.Module):
     def __init__(self, ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/"):
         super().__init__()
-        self.text = SentenceTransformer(ckpt,local_files_only=True, trust_remote_code=True)
+        self.text = AutoModel.from_pretrained(ckpt,local_files_only=True, trust_remote_code=True)
         for p in self.text.parameters():
             p.requires_grad_(False)
 
