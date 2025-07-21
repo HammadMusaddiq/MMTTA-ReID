@@ -10,24 +10,44 @@ class multiModalMarginLossNew(nn.Module):
         self.dist_type = dist_type
         self.margin = margin
         if dist_type == 'l2':
-            self.dist = nn.MSELoss(reduction='sum')
+            self.dist = nn.MSELoss(reduction='mean') #sum
         if dist_type == 'cos':
             self.dist = nn.CosineSimilarity(dim=0)
         if dist_type == 'l1':
             self.dist = nn.L1Loss()
 
     def forward(self, feat1, feat2, feat3, label1):
-        label_num = len(label1.unique())
-        feat1 = feat1.chunk(label_num, 0)
-        feat2 = feat2.chunk(label_num, 0)
-        feat3 = feat3.chunk(label_num, 0)
-        for i in range(label_num):
-          center1 = torch.mean(feat1[i], dim=0)
-          center2 = torch.mean(feat2[i], dim=0)
-          center3 = torch.mean(feat3[i], dim=0)
-          if self.dist_type == 'l2' or self.dist_type == 'l1':
-            if i == 0:
-              dist = max(abs(self.margin - self.dist(center1, center2)), abs(self.margin - self.dist(center2, center3)), abs(self.margin - self.dist(center1, center3)))
-            else:
-              dist += max(abs(self.margin - self.dist(center1, center2)), abs(self.margin - self.dist(center2, center3)), abs(self.margin - self.dist(center1, center3)))
-        return dist
+      """
+      Args:
+          feat{1,2,3}:  (B, D) tensors for RGB / IR / TI
+          label1:       (B,)    tensor of person-IDs
+      Returns:
+          scalar loss averaged over the identities in this batch
+      """
+      label_num = len(label1.unique())
+
+      # split the batch by identity
+      feat1_chunks = feat1.chunk(label_num, 0)
+      feat2_chunks = feat2.chunk(label_num, 0)
+      feat3_chunks = feat3.chunk(label_num, 0)
+
+      id_losses = []                                         # ← collect per-ID max
+
+      for i in range(label_num):
+          # centres of one identity in each modality
+          c1 = torch.mean(feat1_chunks[i], dim=0)
+          c2 = torch.mean(feat2_chunks[i], dim=0)
+          c3 = torch.mean(feat3_chunks[i], dim=0)
+
+          if self.dist_type in ('l2', 'l1'):
+              # margin penalty for this ID: take the worst pair
+              id_max = max(
+                  abs(self.margin - self.dist(c1, c2)),
+                  abs(self.margin - self.dist(c2, c3)),
+                  abs(self.margin - self.dist(c1, c3)),
+              )
+              id_losses.append(id_max)
+
+      # final loss = mean over identities  → O(1) scale
+      dist = torch.stack(id_losses).mean()
+      return dist
