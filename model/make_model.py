@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 from .backbones.resnet import ResNet, Bottleneck
 import copy
-from .backbones.vit_pytorch import vit_base_patch16_224_TransReID, vit_small_patch16_224_TransReID, deit_small_patch16_224_TransReID
+from .backbones.vit_pytorch import vit_base_patch16_224_TransReID, vit_small_patch16_224_TransReID, deit_small_patch16_224_TransReID, AdapterBlock
 from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 from model.nomic_backbones import FrozenNomicVision, FrozenNomicText
-from sentence_transformers import SentenceTransformer
+#from sentence_transformers import SentenceTransformer
 
 def shuffle_unit(features, shift, group, begin=1):
 
@@ -32,7 +32,9 @@ def weights_init_kaiming(m):
     classname = m.__class__.__name__
     if classname.find('Linear') != -1:
         nn.init.kaiming_normal_(m.weight, a=0, mode='fan_out')
-        nn.init.constant_(m.bias, 0.0)
+        #nn.init.constant_(m.bias, 0.0)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
 
     elif classname.find('Conv') != -1:
         nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in')
@@ -134,7 +136,7 @@ class build_transformer(nn.Module):
         super(build_transformer, self).__init__()
         # --- Static dims ---
         self.vit_dim   = 768            # ViT backbone width
-        self.txt_dim   = 1024           # Nomic text encoder output dim
+        #self.txt_dim   = 1024           # Nomic text encoder output dim
         self.in_planes = self.vit_dim   # Default, may be overridden for DeiT-small
 
         # --- Configs ---
@@ -149,6 +151,7 @@ class build_transformer(nn.Module):
         self.use_caption = cfg.CAPTION.ENABLE
         self.distill_on  = cfg.MODEL.DISTILL.ENABLE
         caption_model_path = cfg.MODEL.CAPTION_MODEL_PATH
+        device = torch.device(cfg.MODEL.DEVICE)
 
         # --- Caption encoder and tokenizer ---
         if self.use_caption:
@@ -157,7 +160,19 @@ class build_transformer(nn.Module):
             self.text_encoder = FrozenNomicText(
                 ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/"
             )
-            self.tokenizer = SentenceTransformer("/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/", local_files_only=True, trust_remote_code=True)
+            self.text_encoder = self.text_encoder.to(device).eval()
+            # self.text_encoder.to(torch.device(cfg.MODEL.DEVICE))  #new add 
+            # self.text_encoder.eval()  #new add
+            self.tokenizer = AutoTokenizer.from_pretrained("/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/", local_files_only=True, trust_remote_code=True)
+            with torch.no_grad():
+                dummy_tok = AutoTokenizer.from_pretrained(
+                    caption_model_path, local_files_only=True, trust_remote_code=True
+                )("dummy", return_tensors="pt")
+                device = next(self.text_encoder.parameters()).device
+                dummy_tok = {k: v.to(device) for k, v in dummy_tok.items()}
+                txt_dim_out = self.text_encoder(token_ids=dummy_tok).shape[-1]   # 768
+            self.txt_dim = txt_dim_out          # overwrite the placeholder 1024
+        
         else:
             self.caption_strategy = None
             self.caption_modalities = None
@@ -168,7 +183,7 @@ class build_transformer(nn.Module):
         self.teacher_vis = (
             FrozenNomicVision(
                 ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_vision/"
-            ).eval() if self.distill_on else None
+            ).to(device).eval() if self.distill_on else None
         )
 
         print('using Transformer_type: {} as a backbone'.format(cfg.MODEL.TRANSFORMER_TYPE))
@@ -184,20 +199,23 @@ class build_transformer(nn.Module):
             view_num = 0
 
         # --- Backbone ---
+        num_mod_types = len(cfg.IMAGE_MODALITY)
         self.base = factory[cfg.MODEL.TRANSFORMER_TYPE](
             img_size=cfg.INPUT.SIZE_TRAIN,
             sie_xishu=cfg.MODEL.SIE_COE,
             camera=camera_num,
             view=view_num,
             stride_size=cfg.MODEL.STRIDE_SIZE,
+            num_mod_types=num_mod_types,  
             drop_path_rate=cfg.MODEL.DROP_PATH,
             drop_rate=cfg.MODEL.DROP_OUT,
             attn_drop_rate=cfg.MODEL.ATT_DROP_RATE
         )
 
         # --- Override for DeiT-small ---
-        if cfg.MODEL.TRANSFORMER_TYPE == 'deit_small_patch16_224_TransReID':
-            self.in_planes = 384
+        # if cfg.MODEL.TRANSFORMER_TYPE == 'deit_small_patch16_224_TransReID':
+        #     self.in_planes = 384
+        self.in_planes = self.base.embed_dim_out
 
         # ---------- projections that depend on final in_planes ----------
         if self.use_caption:
@@ -255,15 +273,15 @@ class build_transformer(nn.Module):
         # self.bottleneck.bias.requires_grad_(False)
         # self.bottleneck.apply(weights_init_kaiming)
         # ---------------- Adapter-only finetune -----------------
-        if getattr(cfg.TRAIN, 'ADAPTER_ONLY', False):
-            for p in self.base.parameters():
-                p.requires_grad_(False)          # freeze backbone
-            # enable adapters
-            for m in self.base.modules():
-                if isinstance(m, AdapterBlock):
-                    for p in m.parameters():
-                        p.requires_grad_(True)
-            print('[Adapter-only] backbone frozen; adapters trainable.')
+        # if getattr(cfg.TRAIN, 'ADAPTER_ONLY', False):
+        #     # for p in self.base.parameters():
+        #     #     p.requires_grad_(False)          # freeze backbone
+        #     # enable adapters
+        #     for m in self.base.modules():
+        #         if isinstance(m, AdapterBlock):
+        #             for p in m.parameters():
+        #                 p.requires_grad_(True)
+        #     print('[Adapter-only] backbone frozen; adapters trainable.')
         # --------------------------------------------------------
 
 
@@ -303,6 +321,9 @@ class build_transformer(nn.Module):
         global_feat1 = self.base(x1, 0, cam_label=cam_label, view_label=view_label)  # RGB
         global_feat2 = self.base(x2, 1, cam_label=cam_label, view_label=view_label)  # IR
         global_feat3 = self.base(x3, 2, cam_label=cam_label, view_label=view_label)  # TI
+        global_feat1 = F.normalize(global_feat1, p=2, dim=1)
+        global_feat2 = F.normalize(global_feat2, p=2, dim=1)
+        global_feat3 = F.normalize(global_feat3, p=2, dim=1)
 
         global_feat = torch.cat([global_feat1, global_feat2 , global_feat3], dim=1)
         feat = self.bottleneck(global_feat)
@@ -320,19 +341,68 @@ class build_transformer(nn.Module):
         #     text_feats = self.cap_proj(cap_cls) if self.cap_proj is not None else None  # [B, in_planes]
         # else:
         #     text_feats = None
+        # --- CAPTION STREAM -------------------------------------------------
         if self.use_caption and captions is not None:
-            inputs = self.tokenizer(
-                captions, padding=True, truncation=True,
+
+            # 1)  Force everything into a flat List[str]
+            if isinstance(captions, (list, tuple)):
+                captions_norm = []
+                for c in captions:
+                    if isinstance(c, str):
+                        captions_norm.append(c)
+                    elif isinstance(c, (list, tuple)):          # token list → join
+                        captions_norm.append(" ".join(map(str, c)))
+                    else:                                       # numbers / numpy / bytes
+                        captions_norm.append(str(c))
+            else:                                              # single caption
+                captions_norm = [str(captions)]
+
+            # 2)  Tokenise
+            tokenised = self.tokenizer(
+                captions_norm,
+                padding=True,
+                truncation=True,
                 return_tensors="pt"
-            ).to(x1.device)
-            # FrozenNomicText returns pooled CLS already; if it returns full sequence,
-            # use `.last_hidden_state[:,0]`
-            cap_cls = self.text_encoder(**inputs)
-            cap_cls = self.cap_proj(cap_cls) if self.cap_proj is not None else cap_cls  # [B, D]
+            ).to(x1.device)                     # dict(input_ids, attention_mask, ...)
+
+            # 3)  Nomic-text encoder returns CLS vector
+            cap_cls = self.text_encoder(token_ids=tokenised)    # [B, 1024]
+            cap_cls = self.cap_proj(cap_cls) if self.cap_proj is not None else cap_cls
+
+            # 4)  Tile over the requested modalities (“rgb_only” ⇒ 1)
             text_feats = cap_cls.unsqueeze(0).repeat(
-                len(self.caption_modalities), 1, 1)  # [L, B, D]
+                len(self.caption_modalities), 1, 1              # [L, B, D]
+            )
         else:
             text_feats = None
+# --------------------------------------------------------------------
+
+        # if self.use_caption and captions is not None:
+        #     # inputs = self.tokenizer(
+        #     #     captions, padding=True, truncation=True,
+        #     #     return_tensors="pt"
+        #     # ).to(x1.device)
+        #     if isinstance(captions, (list, tuple)):
+        #         captions_norm = []
+        #         for c in captions:
+        #             if isinstance(c, (list, tuple)):           # token list
+        #                 captions_norm.append(" ".join(map(str, c)))
+        #             else:                                      # single str/bytes/np
+        #                 captions_norm.append(str(c))
+        #     else:                                              # single caption
+        #         captions_norm = [str(captions)]
+
+        #     #tokenised = self.tokenizer(captions, padding=True, truncation=True, return_tensors="pt").to(x1.device)                    # dict with input_ids / attention_mask
+        #     # FrozenNomicText returns pooled CLS already; if it returns full sequence,
+        #     # use `.last_hidden_state[:,0]`
+        #     #cap_cls = self.text_encoder(**inputs)
+        #     cap_cls = self.text_encoder(token_ids=tokenised)          # [B, 1024]
+        #     cap_cls = self.cap_proj(cap_cls) if self.cap_proj is not None else cap_cls  # [B, D]
+            
+        #     text_feats = cap_cls.unsqueeze(0).repeat(
+        #         len(self.caption_modalities), 1, 1)  # [L, B, D]
+        # else:
+        #     text_feats = None
 
 
         if self.training:
