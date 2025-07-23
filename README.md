@@ -84,7 +84,13 @@ Available configs:
 - `configs/MSMT17/vit_base.yml`
 
 ---
+**To run training on multiple GPUs:**
 
+```bash
+CUDA_VISIBLE_DEVICES=0,2 torchrun --standalone --nproc_per_node=2 train.py --config_file configs/Market1501/vit_base_3M.yml --dist
+```
+
+---
 ## Evaluation
 
 After training epochs, metrics (mAP, CMC) are logged. To evaluate a saved checkpoint:
