@@ -1,103 +1,100 @@
-This is the official codes of our paper ***Heterogeneous Test-Time Training for Multi-Modal Person Re-identification*** [Paper Link](https://ojs.aaai.org/index.php/AAAI/article/view/28398) accepted by **AAAI 2024**.
+# MMTTA: Multimodality Test-Time Training Adaption
 
-Should you encounter any issues when running the original code, you may try this alternative version: https://drive.google.com/file/d/199jCO4F9kFvDn5BC59YnGaJgq2AgxBH-/view?usp=drive_link
-
-## Overall Introduction
-
-Inspired by the development of Test-time Training (TTT), we propose a novel method for the multi-modal person ReID task, termed ***Heterogeneous Test-time Training (HTT)***, to improve performance on unseen test data by utilizing **the relationship between heterogeneous modalities** and **fine-tuning the network before inference**.
+This repository implements **MMTTA**, our framework for **Multi-Modal Person Re-Identification**, extending multi-modality training by adapting the model at inference using relationships across RGB, IR, Thermal, and caption modalities.
 
 ---
 
-(a) Traditional multi-modal training exclusively utilizes labeled training data. 
-(b) The proposed heterogeneous test-time training additionally leverages unlabeled test data for optimization.
+## Features
 
-<div align=center><img src="./fig/motivation_HTT.png" width="40%"></div>
+- **Distillation L2 Loss**: Aligns student and teacher feature representations via normalized L2 distance:
 
-## Environment
+  ![Eq1](Eq1.png)
 
-Please follow the previous works [TransReID (ICCV 2021)](https://github.com/damo-cv/TransReID) and [IEEE (AAAI 2022)](https://github.com/ziwang1121/IEEE).
+  Implements distillation between ViT (student) and nomic (teacher) features.
+
+- **Multi-Modal Margin Loss**: Enforces a margin between modality-specific identity centers by penalizing the worst-case pair. For modalities $i,j\in\{\mathrm{RGB},\mathrm{IR},\mathrm{TI}\}$ with centers $c_i, c_j$ and margin $m$:
+
+  ![Eq2](Eq2.png)
+
+  where $N$ is the number of identities in the batch.
+
+- **Vision–Language InfoNCE Loss**: Aligns image and text features using a temperature-scaled InfoNCE objective. Given a batch of size $B$, visual features $f_v^i$ and text features $f_t^i$, and temperature $\tau$:
+
+  ![Eq3](Eq3.png)
+
+---
+
+
+## Environment & Dependencies
+
+1. Clone the repository and install dependencies:
+   ```bash
+   git clone <this-repo-url>
+   cd <repo-folder>
+   pip install -r requirements.txt
+   ```
+2. Based on prior works:
+   - TransReID (ICCV 2021)
+   - IEEE AAAI 2022 multi-modal ReID
+
+---
 
 ## Datasets
 
-Multi-modality Person ReID Dataset: RGBNT201 ([Paper Link](https://ojs.aaai.org/index.php/AAAI/article/view/16467), [Download Link](https://drive.google.com/drive/folders/1EscBadX-wMAT56_It5lXY-S3-b5nK1wH?usp=sharing))
+Prepare each person ReID dataset with RGB, IR, Thermal, and caption modalities:
 
-Multi-modality Vehicle ReID Datasets: RGBNT100 & RGBN300 ([GitHub](https://github.com/ttaalle/multi-modal-vehicle-Re-ID)) 
+- **Market1501** (and Market1501-MM)
+- **Real2**
+- **PRCC**
+- **CUHK03**
+- **MSMT17**
 
-## Network
+Organize under `data/{DatasetName}`:
 
-#### Overview of network
+```
+data/
+  Market1501/
+    RGB/
+    IR/
+    Thermal/
+    captions.txt
+  PRCC/
+    ...
+```
 
-<div align=center><img src="./fig/network.png" width="80%"></div>
-
-#### Highlight
-
-1. Cross-identity inter-modal loss (CIM loss) [code](./loss/multi_modal_id_margin_loss.py)
-
-   CE loss separates features from two identities. Triplet loss controls the distance of features. 3M loss constrains the distance among modalities in each sample. **CIM loss constrains the distance between inter-modal features from different identities.**
-
-<div align=center><img src="./fig/motivation.png" width="40%"></div>
-
-
-2. Multi-modal Test-time Training (MTT) [code](./test_time_train.py)
-
-<div align=center><img src="./fig/MTT.jpg" width="40%"></div>
-
-## Train
-
-~~~python
-# train RGBN300
-python train.py --config_file configs/RGBN300/vit_base.yml
-# train RGBNT100
-python train.py --config_file configs/RGBNT100/vit_base.yml
-# train RGBNT201
-python train.py --config_file configs/RGBNT201/vit_base.yml
-~~~
-
-## Test-time Training
-
-~~~python
-# test-time training RGBN300
-python test_time_train.py --config_file configs/RGBN300/vit_base_ttt.yml
-# test-time training RGBNT100
-python test_time_train.py --config_file configs/RGBNT100/vit_base_ttt.yml
-# test-time training RGBNT201
-python test_time_train.py --config_file configs/RGBNT201/vit_base_ttt.yml
-~~~
-
-## Test 
-
-At the end of each epoch of training and test-time training, a test will be performed, and the test results can be directly seen.
-
-Or you can run the following code to test, and note that the test model path needs to be changed.
-
-~~~python
-# test RGBN300
-python test.py --config_file configs/RGBN300/vit_base_ttt.yml
-# test RGBNT100
-python test.py --config_file configs/RGBNT100/vit_base_ttt.yml
-# test RGBNT201
-python test.py --config_file configs/RGBNT201/vit_base_ttt.yml
-~~~
+Adjust dataset paths in `configs/{DatasetName}/` as needed.
 
 ---
 
-Results
-<div align=center><img src="./fig/person-result.jpg" width="65%"></div>
+## Training
 
-<div align=center><img src="./fig/Vehicle-result.jpg" width="35%"></div>
+Standard multi-modal training:
 
-## Citation and Contact
+```bash
+# Example: train on Market1501
+python train.py --config_file configs/Market1501/vit_base.yml
+```
 
-~~~
-@inproceedings{wang2024heterogeneous,
-  title={Heterogeneous Test-Time Training for Multi-Modal Person Re-identification},
-  author={Wang, Zi and Huang, Huaibo and Zheng, Aihua and He, Ran},
-  booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
-  volume={38},
-  number={6},
-  pages={5850--5858},
-  year={2024}
-}
-~~~
+Available configs:
 
-If you have any questions about the project or are interested in multi-modal ReID, please feel free to contact me (ziwang1121@foxmail.com). 
+- `configs/Market1501-MM/vit_base.yml`
+- `configs/Real2/vit_base.yml`
+- `configs/PRCC/vit_base.yml`
+- `configs/CUHK03/vit_base.yml`
+- `configs/MSMT17/vit_base.yml`
+
+---
+
+## Evaluation
+
+After training epochs, metrics (mAP, CMC) are logged. To evaluate a saved checkpoint:
+
+```bash
+python test.py --config_file configs/Market1501/vit_base.yml \
+               --model_path /path/to/checkpoint.pth
+```
+
+---
+
+*This README focuses on code usage, dataset setup, and loss function definitions.*
+
