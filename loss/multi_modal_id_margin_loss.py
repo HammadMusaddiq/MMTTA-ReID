@@ -21,6 +21,8 @@ class IDMarginLossNew(nn.Module):
         label_num = len(label1.unique())
         # label_num = len(label1)
         sample_num = len(label1) // label_num
+
+        feature_dimension = feat1.size(1)
         feat1 = feat1.chunk(label_num, 0)
         feat2 = feat2.chunk(label_num, 0)
         feat3 = feat3.chunk(label_num, 0)
@@ -44,6 +46,7 @@ class IDMarginLossNew(nn.Module):
                 distance_fianl.append(max(distance))
 
         dist = sum(distance_fianl)/len(distance_fianl)
+        dist = dist / feature_dimension
 
         return dist
 
@@ -62,6 +65,8 @@ class IDMarginLossNew_dual(nn.Module):
     def forward(self, feat1, feat2, label1):
         label_num = len(label1.unique())
         sample_num = len(label1) // label_num
+
+        feature_dimension = feat1.size(1)
         feat1 = feat1.chunk(label_num, 0)
         feat2 = feat2.chunk(label_num, 0)
 
@@ -78,5 +83,5 @@ class IDMarginLossNew_dual(nn.Module):
                 distance_fianl.append(max(distance))
 
         dist = sum(distance_fianl) / len(distance_fianl)
+        dist = dist / feature_dimension
         return dist
-
