@@ -53,6 +53,7 @@ def make_loss(cfg, num_classes):
 
     elif sampler == 'softmax_triplet':
         def loss_func(score, feat, target, target_cam, captions=None):
+            B = target.size(0) 
             # -------- ID LOSS --------
             if isinstance(score, list):
                 ID_LOSS = sum(F.cross_entropy(s, target) for s in score) / len(score)
@@ -62,9 +63,15 @@ def make_loss(cfg, num_classes):
             # -------- IMAGE MODALITY LOSSES --------
             if isinstance(feat, list):
                 norm_feats = [F.normalize(f, p=2, dim=1) for f in feat[:4]]
-                MMM_LOSS = criterion_m(norm_feats[1], norm_feats[2], norm_feats[3], target)
-                IDM_LOSS = criterion_i(norm_feats[1], norm_feats[2], norm_feats[3], target)
-                TRI_LOSS = 0.5 * MMM_LOSS + 0.5 * IDM_LOSS + triplet(feat[0], target)[0]
+                MMM_LOSS = criterion_m(norm_feats[1], norm_feats[2], norm_feats[3], target).mean()
+                IDM_LOSS = criterion_i(norm_feats[1], norm_feats[2], norm_feats[3], target).mean()
+                #TRI_LOSS = 0.5 * MMM_LOSS + 0.5 * IDM_LOSS + triplet(feat[0], target)[0]
+                # TRI_LOSS = (0.5*MMM_LOSS + 0.5*IDM_LOSS)
+                # TRI_LOSS += triplet(feat[0], target)[0]
+                anchor = F.normalize(feat[0], p=2, dim=1) 
+                TRI_LOSS = 0.5 * MMM_LOSS + 0.5 * IDM_LOSS + triplet(anchor, target)[0]
+                # print("MMM Loss: ", MMM_LOSS)
+                # print("IDM Loss: ", IDM_LOSS)
             else:
                 TRI_LOSS = triplet(feat, target)[0]
 
@@ -94,28 +101,54 @@ def make_loss(cfg, num_classes):
                     
                     cap_vec = cap_vec.to(img_vec.device)
 
-                    # img_vec = F.normalize(img_vec, p=2, dim=1)
-                    # cap_vec = F.normalize(cap_vec, p=2, dim=1)
+                    img_vec = F.normalize(img_vec, p=2, dim=1)
+                    cap_vec = F.normalize(cap_vec, p=2, dim=1)
 
+
+
+                    # if cfg.CAPTION.LOSS.TRIPLET:
+                    #     caption_loss += cap_triplet(cap_vec, target)[0]
+                    # if cfg.CAPTION.LOSS.ADAPTIVE_TRIPLET:           # <-- new flag
+                    #     caption_loss += cap_adatri(img_vec, cap_vec, target)
+                    # if cfg.CAPTION.LOSS.CONTRASTIVE:
+                    #     caption_loss += cap_contrastive(img_vec, cap_vec, target)
+                    # if cfg.CAPTION.LOSS.INFO_NCE:
+                    #     caption_loss += cap_infonce(img_vec, cap_vec)
+                    loss_components = []
                     if cfg.CAPTION.LOSS.TRIPLET:
-                        caption_loss += cap_triplet(cap_vec, target)[0]
-                    if cfg.CAPTION.LOSS.ADAPTIVE_TRIPLET:           # <-- new flag
-                        caption_loss += cap_adatri(img_vec, cap_vec, target)
+                        loss_components.append(cap_triplet(cap_vec, target)[0])
+                        # lc = cap_triplet(cap_vec, target)[0]
+                        # print('cap-triplet', i, lc.item())
+                    if cfg.CAPTION.LOSS.ADAPTIVE_TRIPLET:
+                        loss_components.append( cap_adatri(img_vec, cap_vec, target)) #0.001 *
+                        # lc = cap_adatri(img_vec, cap_vec, target)
+                        # print('cap-adaTri', i, lc.item())
                     if cfg.CAPTION.LOSS.CONTRASTIVE:
-                        caption_loss += cap_contrastive(img_vec, cap_vec, target)
+                        loss_components.append(cap_contrastive(img_vec, cap_vec, target))
+                        # lc = cap_contrastive(img_vec, cap_vec, target)
+                        # print('cap-contrast', i, lc.item())
                     if cfg.CAPTION.LOSS.INFO_NCE:
-                        caption_loss += cap_infonce(img_vec, cap_vec)
+                        loss_components.append(cap_infonce(img_vec, cap_vec))
+                        # # print('cap-infoNCE', i, lc.item())
+                        # loss_components.append(lc)
+
+                    if loss_components:                         # average **here**
+                        caption_loss += torch.stack(loss_components).mean()
 
                     valid_mods += 1
 
                 if valid_mods > 0:
-                    caption_loss /= valid_mods
+                    #caption_loss /= valid_mods
+                    caption_loss /= (valid_mods * B)
 
             total_loss = (
                 cfg.MODEL.ID_LOSS_WEIGHT * ID_LOSS +
                 cfg.MODEL.TRIPLET_LOSS_WEIGHT * TRI_LOSS +
                 cap_weight * caption_loss + 
                 (cfg.MODEL.DISTILL.W * DIST_LOSS if distill is not None else 0.0))
+
+            # print("ID Loss:",ID_LOSS, "Tri_loss: ",TRI_LOSS, "Caption Loss:",caption_loss, "Dist loss",DIST_LOSS )
+            # print("Total Loss:", total_loss )
 
             return total_loss
 
