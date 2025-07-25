@@ -92,6 +92,7 @@ def do_train(cfg,
                 loss = loss_fn(score, feat, target, target_cam, captions=feat[4])
 
             scaler.scale(loss).backward()
+            unscaled_loss = loss.detach() / scaler.get_scale()      # ← NEW
 
             scaler.step(optimizer)
             scaler.update()
@@ -108,6 +109,9 @@ def do_train(cfg,
                 acc = (score.max(1)[1] == target).float().mean()
 
             loss_meter.update(loss.item(), img1.shape[0])
+            #loss_meter.update(unscaled_loss.item(), img1.shape[0])   # ← FIXED
+            # real_loss = loss.detach() / scaler.get_scale()    # ← NEW
+            # loss_meter.update(real_loss.item(), img1.shape[0])
             acc_meter.update(acc, 1)
             # acc_cam_meter.update(acc_cam, 1)
 
@@ -133,6 +137,15 @@ def do_train(cfg,
         #     else:
         #         torch.save(model.state_dict(),
         #                    os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_{}.pth'.format(epoch)))
+
+        if (n_iter == 0 and epoch == 1):          # first batch only
+            logger.info(
+                f"[DEBUG] ID {ID_LOSS.item():.3f} | "
+                f"TRI {TRI_LOSS.item():.3f} | "
+                f"CAP {caption_loss.item():.3f} | "
+                f"DIST {DIST_LOSS.item():.3f}"
+            )
+
 
         if epoch % eval_period == 0:
             if cfg.MODEL.DIST_TRAIN:
@@ -319,6 +332,8 @@ def do_ttt(cfg,
                 acc = (score.max(1)[1] == target).float().mean()
 
             loss_meter.update(loss.item(), img1.shape[0])
+            # real_loss = loss.detach() / scaler.get_scale()    # ← NEW
+            # loss_meter.update(real_loss.item(), img1.shape[0])
             acc_meter.update(acc, 1)
             # acc_cam_meter.update(acc_cam, 1)
 
