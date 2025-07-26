@@ -199,7 +199,6 @@ _C.IMAGE_MODALITY = ["RGB"]
 _C.CAPTION = CN()
 _C.CAPTION.ENABLE = False
 _C.CAPTION.STRATEGY = "rgb_only"  # or "matched"
-_C.CAPTION.MODALITY = ["RGB"]     # used if strategy is "matched"
 _C.CAPTION.LOSS = CN()
 _C.CAPTION.LOSS.TRIPLET = True
 _C.CAPTION.LOSS.CONTRASTIVE = True

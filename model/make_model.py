@@ -132,7 +132,7 @@ class Backbone(nn.Module):
 
 # model class for 3 modalities
 class build_transformer(nn.Module):
-    def __init__(self, num_classes, camera_num, view_num, cfg, factory):
+    def __init__(self, num_classes, camera_num, view_num, cfg, factory, device):
         super(build_transformer, self).__init__()
         # --- Static dims ---
         self.vit_dim   = 768            # ViT backbone width
@@ -151,12 +151,12 @@ class build_transformer(nn.Module):
         self.use_caption = cfg.CAPTION.ENABLE
         self.distill_on  = cfg.MODEL.DISTILL.ENABLE
         caption_model_path = cfg.MODEL.CAPTION_MODEL_PATH
-        device = torch.device(cfg.MODEL.DEVICE)
+        # device = torch.device(cfg.MODEL.DEVICE)
 
         # --- Caption encoder and tokenizer ---
         if self.use_caption:
             self.caption_strategy = cfg.CAPTION.STRATEGY
-            self.caption_modalities = cfg.CAPTION.MODALITY if self.caption_strategy == "matched" else ["RGB"]
+            self.caption_modalities = cfg.IMAGE_MODALITY if self.caption_strategy == "matched" else ["RGB"]
             self.text_encoder = FrozenNomicText(
                 ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/"
             )
@@ -449,7 +449,7 @@ __factory_T_type = {
     'deit_small_patch16_224_TransReID': deit_small_patch16_224_TransReID
 }
 
-def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy):
+def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy, device):
 
 
     if cfg.MODEL.NAME == 'transformer':
@@ -457,7 +457,7 @@ def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy):
             # model = build_transformer_local(num_class, camera_num, view_num, cfg, __factory_T_type, rearrange=cfg.MODEL.RE_ARRANGE)
             print('===========building transformer with JPM module ===========')
         else:
-            model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type)
+            model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type, device)
             print('===========building transformer===========')
     else:
         model = Backbone(num_class, cfg)
