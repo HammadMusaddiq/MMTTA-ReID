@@ -15,6 +15,7 @@ from .distill_l2 import DistillL2Loss
 def make_loss(cfg, num_classes):
     sampler = cfg.DATALOADER.SAMPLER
     feat_dim = 2048
+    
 
     # Caption-related setup
     use_caption = cfg.CAPTION.ENABLE
@@ -53,6 +54,8 @@ def make_loss(cfg, num_classes):
 
     elif sampler == 'softmax_triplet':
         def loss_func(score, feat, target, target_cam, captions=None):
+            def pick(lst, idx):
+                return lst[idx] if isinstance(lst, list) and len(lst) > idx and lst[idx] is not None else None
             B = target.size(0) 
             # -------- ID LOSS --------
             if isinstance(score, list):
@@ -61,85 +64,69 @@ def make_loss(cfg, num_classes):
                 ID_LOSS = F.cross_entropy(score, target)
 
             # -------- IMAGE MODALITY LOSSES --------
-            if isinstance(feat, list):
-                norm_feats = [F.normalize(f, p=2, dim=1) for f in feat[:4]]
-                MMM_LOSS = criterion_m(norm_feats[1], norm_feats[2], norm_feats[3], target).mean()
-                IDM_LOSS = criterion_i(norm_feats[1], norm_feats[2], norm_feats[3], target).mean()
-                #TRI_LOSS = 0.5 * MMM_LOSS + 0.5 * IDM_LOSS + triplet(feat[0], target)[0]
-                # TRI_LOSS = (0.5*MMM_LOSS + 0.5*IDM_LOSS)
-                # TRI_LOSS += triplet(feat[0], target)[0]
-                anchor = F.normalize(feat[0], p=2, dim=1) 
-                TRI_LOSS = 0.5 * MMM_LOSS + 0.5 * IDM_LOSS + triplet(anchor, target)[0]
-                # print("MMM Loss: ", MMM_LOSS)
-                # print("IDM Loss: ", IDM_LOSS)
-            else:
-                TRI_LOSS = triplet(feat, target)[0]
+            # -------- IMAGE-MODALITY LOSSES ----------------------------------
+            rgb = pick(feat, 1)
+            ir  = pick(feat, 2)
+            ti  = pick(feat, 3)
+            anchor = F.normalize(pick(feat, 0), p=2, dim=1)  # global concat
 
-            if distill is not None and isinstance(feat, list) and len(feat) > 5:
-                DIST_LOSS = distill(feat[0], feat[5])
+            if rgb is not None and ir is not None and ti is not None:
+                rgb = F.normalize(rgb, p=2, dim=1)
+                ir  = F.normalize(ir , p=2, dim=1)
+                ti  = F.normalize(ti , p=2, dim=1)
+
+                MMM_LOSS = criterion_m(rgb, ir, ti, target).mean()
+                IDM_LOSS = criterion_i(rgb, ir, ti, target).mean()
+                TRI_LOSS = 0.5 * MMM_LOSS + 0.5 * IDM_LOSS + triplet(anchor, target)[0]
+            else:
+                TRI_LOSS = triplet(anchor, target)[0]
+ 
+            # -------- DISTILLATION LOSS -------------------------------------
+            teacher_rgb = pick(feat, 5)
+            if distill is not None and teacher_rgb is not None:
+                DIST_LOSS = distill(anchor, teacher_rgb)
             else:
                 DIST_LOSS = torch.tensor(0.0, device=target.device)
 
-            
-            # -------- CAPTION LOSS --------
+  
+            # -------- CAPTION LOSSES ----------------------------------------
             caption_loss = torch.tensor(0.0, device=target.device)
-            if use_caption and captions is not None and isinstance(feat, list) and len(feat) > 4:
-                cap_feats = feat[4]                             # list OR tensor
-                mod_map = {"RGB": 0, "IR": 1, "TI": 2}
-                valid_mods = 0
+            if use_caption and captions is not None:
+                cap_feats = pick(feat, 4)          # (B,D) or (1,B,D)
+                if cap_feats is not None:
+                    # Make sure cap_feats = (L,B,D)
+                    if cap_feats.dim() == 2:
+                        cap_feats = cap_feats.unsqueeze(0)     # (1,B,D)
+                    elif cap_feats.size(0) == 1 and caption_strategy.lower() != "matched":
+                        cap_feats = cap_feats                  # still (1,B,D)
+                    # Else it is already (L,B,D)
 
-                for i, cap_mod in enumerate(caption_modalities):
-                    img_idx = mod_map.get(cap_mod, -1)
-                    if img_idx < 0 or img_idx >= len(feat) - 1:
-                        continue
+                    mod_map = {"RGB": 0, "IR": 1, "TI": 2}
+                    valid = 0
+                    for i, cap_mod in enumerate(caption_modalities):
+                        img_idx = 1 + mod_map.get(cap_mod, -1)
+                        img_vec = pick(feat, img_idx)
+                        if img_vec is None:
+                            continue
 
-                    img_vec = feat[1 + img_idx]
-                    cap_vec = cap_feats[i] if caption_strategy == "matched" and len(cap_feats) > 1 else cap_feats[0]
+                        cap_vec = cap_feats[min(i, cap_feats.size(0)-1)]
+                        img_vec = F.normalize(img_vec, p=2, dim=1)
+                        cap_vec = F.normalize(cap_vec, p=2, dim=1)
 
-                    if img_vec is None or cap_vec is None:
-                        continue
-                    
-                    cap_vec = cap_vec.to(img_vec.device)
+                        parts = []
+                        if cfg.CAPTION.LOSS.TRIPLET:          parts.append(cap_triplet(cap_vec, target)[0])
+                        if cfg.CAPTION.LOSS.ADAPTIVE_TRIPLET: parts.append(cap_adatri(img_vec, cap_vec, target))
+                        if cfg.CAPTION.LOSS.CONTRASTIVE:      parts.append(cap_contrastive(img_vec, cap_vec, target))
+                        if cfg.CAPTION.LOSS.INFO_NCE:         parts.append(cap_infonce(img_vec, cap_vec))
 
-                    img_vec = F.normalize(img_vec, p=2, dim=1)
-                    cap_vec = F.normalize(cap_vec, p=2, dim=1)
+                        if parts:
+                            caption_loss += torch.stack(parts).mean()
+                            valid += 1
 
+                    if valid:
+                        caption_loss = caption_loss #/ (valid * B)
 
-
-                    # if cfg.CAPTION.LOSS.TRIPLET:
-                    #     caption_loss += cap_triplet(cap_vec, target)[0]
-                    # if cfg.CAPTION.LOSS.ADAPTIVE_TRIPLET:           # <-- new flag
-                    #     caption_loss += cap_adatri(img_vec, cap_vec, target)
-                    # if cfg.CAPTION.LOSS.CONTRASTIVE:
-                    #     caption_loss += cap_contrastive(img_vec, cap_vec, target)
-                    # if cfg.CAPTION.LOSS.INFO_NCE:
-                    #     caption_loss += cap_infonce(img_vec, cap_vec)
-                    loss_components = []
-                    if cfg.CAPTION.LOSS.TRIPLET:
-                        loss_components.append(cap_triplet(cap_vec, target)[0])
-                        # lc = cap_triplet(cap_vec, target)[0]
-                        # print('cap-triplet', i, lc.item())
-                    if cfg.CAPTION.LOSS.ADAPTIVE_TRIPLET:
-                        loss_components.append( cap_adatri(img_vec, cap_vec, target)) #0.001 *
-                        # lc = cap_adatri(img_vec, cap_vec, target)
-                        # print('cap-adaTri', i, lc.item())
-                    if cfg.CAPTION.LOSS.CONTRASTIVE:
-                        loss_components.append(cap_contrastive(img_vec, cap_vec, target))
-                        # lc = cap_contrastive(img_vec, cap_vec, target)
-                        # print('cap-contrast', i, lc.item())
-                    if cfg.CAPTION.LOSS.INFO_NCE:
-                        loss_components.append(cap_infonce(img_vec, cap_vec))
-                        # # print('cap-infoNCE', i, lc.item())
-                        # loss_components.append(lc)
-
-                    if loss_components:                         # average **here**
-                        caption_loss += torch.stack(loss_components).mean()
-
-                    valid_mods += 1
-
-                if valid_mods > 0:
-                    #caption_loss /= valid_mods
-                    caption_loss /= (valid_mods * B)
+           
 
             total_loss = (
                 cfg.MODEL.ID_LOSS_WEIGHT * ID_LOSS +

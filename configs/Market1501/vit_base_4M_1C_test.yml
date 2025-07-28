@@ -1,21 +1,23 @@
 MODEL:
   PRETRAIN_CHOICE: 'imagenet'
   # PRETRAIN_PATH: 'C:\Users\ziwang\.conda\jx_vit_base_p16_224-80ecf9dd.pth'
-  PRETRAIN_PATH: 'model/jx_vit_base_p16_224-80ecf9dd.pth'
-  CAPTION_MODEL_PATH: "model/bert-base-uncased"
+  PRETRAIN_PATH: '/mnt/data2/Hammad/git_repos/HTT-EXP/models/jx_vit_base_p16_224-80ecf9dd.pth'
+  # CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased"
+  CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/HTT-EXP/models/nomic"
   METRIC_LOSS_TYPE: 'triplet'
   IF_LABELSMOOTH: 'off'
   IF_WITH_CENTER: 'no'
   NAME: 'transformer'
-  NO_MARGIN: True
-  # DEVICE_ID: ('6')
+  NO_MARGIN: False
+  # DEVICE_ID: ('4')
   TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
   STRIDE_SIZE: [16, 16]
-  TRAIN_MODE: 'RNT'
-  DIST_TRAIN: False
+  # TRAIN_MODE: 'RNT'
+  ID_LOSS_WEIGHT: 0.5 
+  TRIPLET_LOSS_WEIGHT: 2.0
   DISTILL:
     ENABLE: True
-    W: 0.1          # λ_dist in the paper
+    W: 0.5          # λ_dist in the paper
 
 INPUT:
   SIZE_TRAIN: [256, 128]
@@ -27,40 +29,43 @@ INPUT:
   PIXEL_STD: [0.5, 0.5, 0.5]
 
 DATASETS:
-  MULTI: False                 # False → use the single dataset in NAMES
-  NAMES: [market1501, market1501_MM]
-  ROOT_DIR: ('/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/data/Market1501/')
+  MULTI: True                 # False → use the single dataset in NAMES
+  NAMES: [market1501, market1501_MM, msmt17 ]
+  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
 
 DATALOADER:
   SAMPLER: 'softmax_triplet'
   NUM_INSTANCE: 4
-  NUM_WORKERS: 8
+  NUM_WORKERS: 16
 
 IMAGE_MODALITY: ["RGB", "IR", "TI"]
 
 CAPTION:
   ENABLE: True
-  STRATEGY: "Matched"   # or "rgb_only" / "matched"
+  STRATEGY: "rgb_only"   # or "rgb_only" / "matched"
   LOSS:
     INFO_NCE: True   # new switch
     TRIPLET: True
     ADAPTIVE_TRIPLET: True
     CONTRASTIVE: True
-    WEIGHT: 0.5
-    
+    WEIGHT: 1.0
+
+
+
 TRAIN:
   ADAPTER_ONLY: False
+
 SOLVER:
-  OPTIMIZER_NAME: 'SGD'
-  MAX_EPOCHS: 90
-  BASE_LR: 0.008
-  IMS_PER_BATCH: 128
+  OPTIMIZER_NAME: 'AdamW'
+  MAX_EPOCHS: 120
+  BASE_LR: 3e-5
+  IMS_PER_BATCH: 64
   WARMUP_METHOD: 'linear'
   LARGE_FC_LR: False
-  CHECKPOINT_PERIOD: 15
+  CHECKPOINT_PERIOD: 5
   LOG_PERIOD: 50
-  EVAL_PERIOD: 15
-  WEIGHT_DECAY:  1e-4
+  EVAL_PERIOD: 5
+  WEIGHT_DECAY:  0.05
   WEIGHT_DECAY_BIAS: 1e-4
   BIAS_LR_FACTOR: 2
   # SEED: 1
@@ -80,5 +85,5 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/Market1501/4M-test-Dist'
+OUTPUT_DIR: './logs/Market1501/4M-RGB-text-multidata-multigpu'
 #now loss function adjusted

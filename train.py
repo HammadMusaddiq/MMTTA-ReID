@@ -135,3 +135,6 @@ if __name__ == '__main__':
 
 # CUDA_VISIBLE_DEVICES=1,2 torchrun --standalone --nproc_per_node=2 train.py --config_file configs/Market1501/vit_base_3M.yml --dist
 
+# CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Market1501/vit_base_4M_1C_test.yml
+# CUDA_VISIBLE_DEVICES=0,1 torchrun --standalone --nproc_per_node=2 train.py --config_file configs/Market1501/vit_base_4M_1C_test.yml --dist
+

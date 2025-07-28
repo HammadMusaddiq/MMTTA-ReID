@@ -173,7 +173,7 @@ def make_dataloader(cfg):
 
     if cfg.DATASETS.MULTI:
         # use every name in the tuple
-        dataset = load_multi_dataset(cfg, root=cfg.DATASETS.ROOT_DIR)
+        dataset = load_multi_dataset(cfg, root=cfg.DATASETS.ROOT_DIR, c_modality = caption_modality)
         # dataset = merge_datasets(cfg)
     
     else:

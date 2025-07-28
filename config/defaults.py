@@ -208,7 +208,6 @@ _C.CAPTION.LOSS.ADAPTIVE_TRIPLET = True
 _C.MODEL.CAPTION_MODEL_PATH = "bert-base-uncased" 
 
 _C.DATASETS.MULTI = False
-_C.DATASETS.MODE = "full-modal"  # 'plain', 'full-modal', 'attr', 't2i', …
 
 _C.MODEL.DISTILL = CN()
 _C.MODEL.DISTILL.ENABLE = False

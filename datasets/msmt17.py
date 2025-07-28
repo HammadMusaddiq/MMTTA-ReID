@@ -31,7 +31,7 @@ class MSMT17(BaseImageDataset):
         self.dataset_dir   = osp.join(root, self.dataset_dir)
         self.train_dir     = osp.join(self.dataset_dir, 'mask_train_v2')
         self.test_dir      = osp.join(self.dataset_dir, 'mask_test_v2')
-        self.caption_dir   = osp.join(self.dataset_dir, 'cap_predictions', 'MSMT17-v2 Captions')
+        self.caption_dir   = osp.join(root, 'cap_predictions', 'MSMT17-v2 Captions') # fixed path for captions
 
         self.list_train    = osp.join(self.dataset_dir, 'list_train.txt')
         self.list_val      = osp.join(self.dataset_dir, 'list_val.txt')
