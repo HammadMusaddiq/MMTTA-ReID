@@ -170,11 +170,10 @@ class build_transformer(nn.Module):
         if self.use_caption:
             self.caption_strategy = cfg.CAPTION.STRATEGY
             self.caption_modalities = cfg.IMAGE_MODALITY if self.caption_strategy == "matched" else ["RGB"]
-            self.text_encoder = (AutoModel.from_pretrained(
-                f"{caption_model_path}/nomic_text/", local_files_only=True, trust_remote_code=True
-            ).to(torch.device(cfg.MODEL.DEVICE))
-                         .eval())
-            device = next(self.text_encoder.parameters()).device   # ← new
+            self.text_encoder = AutoModel.from_pretrained(f"{caption_model_path}/nomic_text/", local_files_only=True, trust_remote_code=True)
+            self.text_encoder.to(device)
+            self.text_encoder.eval()
+            # device = next(self.text_encoder.parameters()).device   # ← new
             # self.text_encoder = self.text_encoder.to(device).eval()
             # self.text_encoder.to(torch.device(cfg.MODEL.DEVICE))  #new add 
             # self.text_encoder.eval()  #new add
@@ -182,8 +181,8 @@ class build_transformer(nn.Module):
 
             with torch.no_grad():
     
-                #device      = next(self.text_encoder.parameters()).device
-                dummy_inputs  = self.tokenizer("search_document: dummy", return_tensors="pt").to(device)
+                text_device = next(self.text_encoder.parameters()).device
+                dummy_inputs = self.tokenizer("search_document: dummy", return_tensors="pt").to(text_device)
                 #dummy_tok = {k: v.to(next(self.text_encoder.parameters()).device) for k, v in dummy_tok.items()}
                 cls_vec      = self.text_encoder(**dummy_inputs).last_hidden_state[:, 0]  # [1, dim]
                 self.txt_dim = cls_vec.shape[-1]          # e.g. 1024
@@ -354,13 +353,13 @@ class build_transformer(nn.Module):
             text_feats = self.cap_proj(cls_vec) if self.cap_proj else cls_vec          # (B,D)
 
         # ---------- PACK RETURN LIST ----------
-        feat_list = [global_feat, global_feat1, global_feat2, global_feat3, text_feats]
+        # feat_list = [global_feat, global_feat1, global_feat2, global_feat3, text_feats]
 
-        # teacher CLS (optional, may be None)
-        if self.teacher_vis:
-            with torch.no_grad():
-                t_raw = self.teacher_vis(x1)                    # (B,1024 or 768 ...)
-            feat_list.append(self.teacher_proj(t_raw) if self.teacher_proj else t_raw)
+        # # teacher CLS (optional, may be None)
+        # if self.teacher_vis:
+        #     with torch.no_grad():
+        #         t_raw = self.teacher_vis(x1)                    # (B,1024 or 768 ...)
+        #     feat_list.append(self.teacher_proj(t_raw) if self.teacher_proj else t_raw)
 
         # training ─ return score + list /  eval ─ return feats
 
@@ -420,7 +419,7 @@ class build_transformer(nn.Module):
 
             if self.teacher_vis is not None:
                 with torch.no_grad():
-                    t_raw = self.teacher_vis(x1)          # teacher on RGB only
+                    t_raw = self.teacher_vis(x1).detach()          # teacher on RGB only
                 t_cls = self.teacher_proj(t_raw) if self.teacher_proj else t_raw
                 feat_list.append(t_cls)                   # teacher RGB
             return cls_score, feat_list
