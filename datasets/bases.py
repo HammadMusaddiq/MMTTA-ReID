@@ -127,7 +127,10 @@ class BaseImageDataset(BaseDataset):
 
         df = pd.DataFrame(stats)
         print("=> Dataset statistics:")
-        print(df.to_markdown(index=False))
+        # print(df.to_markdown(index=False))
+
+        # Log to logger
+        logger.info("=> Dataset statistics:\n%s", df.to_markdown(index=False))
 
         # Log to logger
         logger.info("=> Dataset statistics:\n%s", df.to_markdown(index=False))

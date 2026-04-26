@@ -1,7 +1,8 @@
 MODEL:
   PRETRAIN_CHOICE: 'imagenet'
   # PRETRAIN_PATH: 'C:\Users\ziwang\.conda\jx_vit_base_p16_224-80ecf9dd.pth'
-  PRETRAIN_PATH: 'models/jx_vit_base_p16_224-80ecf9dd.pth'
+  # PRETRAIN_PATH: 'models/jx_vit_base_p16_224-80ecf9dd.pth'
+  PRETRAIN_PATH: "/mnt/data2/Hammad/git_repos/HTT-EXP/models/jx_vit_base_p16_224-80ecf9dd.pth"
   CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased"
   METRIC_LOSS_TYPE: 'triplet'
   IF_LABELSMOOTH: 'off'
@@ -24,7 +25,7 @@ INPUT:
   PIXEL_STD: [0.5, 0.5, 0.5]
 
 DATASETS:
-  MULTI: True                 # False → use the single dataset in NAMES
+  MULTI: False                 # False → use the single dataset in NAMES
   NAMES: [market1501, market1501_MM]
   ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
 
@@ -68,6 +69,6 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/Market1501/3M-v1'
+OUTPUT_DIR: './logs/Market1501/3M-v1-2'
 
 

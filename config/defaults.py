@@ -219,3 +219,7 @@ _C.TRAIN.ADAPTER_ONLY = False  # or True, depending on your default
 _C.TTA = CN()
 _C.TTA.ENTROPY_ENABLE = True
 _C.TTA.ENTROPY_W = 1.0
+
+_C.DATALOADER.persistent_workers = True
+_C.DATALOADER.pin_memory = True
+_C.DATALOADER.prefetch_factor = 4

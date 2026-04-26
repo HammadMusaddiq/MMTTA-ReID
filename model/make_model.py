@@ -208,6 +208,9 @@ class build_transformer(nn.Module):
             ).to(device).eval() if self.distill_on else None
         )
 
+        if self.teacher_vis is not None:
+            self.teacher_vis.requires_grad_(False)
+        
         print('using Transformer_type: {} as a backbone'.format(cfg.MODEL.TRANSFORMER_TYPE))
 
         # --- Camera/view logic ---
@@ -239,6 +242,10 @@ class build_transformer(nn.Module):
         #     self.in_planes = 384
         self.in_planes = self.base.embed_dim_out
 
+         # -------- number of modalities finally concatenated ------------
+        self.mod_concat  = 3 + (1 if self.use_caption else 0)   # RGB,IR,TI,(txt)
+        self.concat_dim  = self.in_planes * self.mod_concat
+
         # ---------- projections that depend on final in_planes ----------
         if self.use_caption:
             self.cap_proj = nn.Linear(self.txt_dim, self.in_planes, bias=False)
@@ -253,10 +260,13 @@ class build_transformer(nn.Module):
         #     self.teacher_proj = None
         if self.distill_on:
             # Dynamically determine teacher output dim
-            with torch.no_grad():
-                dummy = torch.randn(1, 3, 224, 224)
-                vis_dim = self.teacher_vis(dummy).shape[-1]
-            self.teacher_proj = nn.Linear(vis_dim, self.in_planes, bias=False)
+            # with torch.no_grad():
+            #     dummy = torch.randn(1, 3, 224, 224)
+            #     vis_dim = self.teacher_vis(dummy).shape[-1]
+            # self.teacher_proj = nn.Linear(vis_dim, self.in_planes, bias=False)
+
+            self.teacher_proj = nn.Linear(self.teacher_vis.out_dim,       # =1024
++                self.in_planes, bias=False)
             self.teacher_proj.apply(weights_init_kaiming)
         else:
             self.teacher_proj = None
@@ -270,12 +280,14 @@ class build_transformer(nn.Module):
         self.num_classes = num_classes
         self.ID_LOSS_TYPE = cfg.MODEL.ID_LOSS_TYPE
 
-        self.bottleneck = nn.BatchNorm1d(self.in_planes * 3)
+        # self.bottleneck = nn.BatchNorm1d(self.in_planes * 3)
+        self.bottleneck = nn.BatchNorm1d(self.concat_dim)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
 
         # --- Metric-learning head (classifier) ---
-        head_in = self.in_planes * 3
+        # head_in = self.in_planes * 3
+        head_in = self.concat_dim
         if self.ID_LOSS_TYPE == 'arcface':
             self.classifier = Arcface(head_in, self.num_classes,
                                     s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
@@ -326,15 +338,20 @@ class build_transformer(nn.Module):
 
 
     def forward(self, x1, x2, x3, label=None, cam_label= None, view_label=None, captions=None):
+        # ----------------------- student visual ------------------------
         global_feat1 = self.base(x1, 0, cam_label=cam_label, view_label=view_label)  # RGB
         global_feat2 = self.base(x2, 1, cam_label=cam_label, view_label=view_label)  # IR
         global_feat3 = self.base(x3, 2, cam_label=cam_label, view_label=view_label)  # TI
         global_feat1 = F.normalize(global_feat1, p=2, dim=1)
         global_feat2 = F.normalize(global_feat2, p=2, dim=1)
         global_feat3 = F.normalize(global_feat3, p=2, dim=1)
+        text_feats = None
 
-        global_feat = torch.cat([global_feat1, global_feat2 , global_feat3], dim=1)
-        feat = self.bottleneck(global_feat)
+        # if text_feats is None:
+        #     global_feat = torch.cat((global_feat1, global_feat2, global_feat3,text_feats),dim=1) 
+        # else:
+        #     global_feat = torch.cat((global_feat1, global_feat2, global_feat3),dim=1)
+                                 
 
         # ---------- CAPTION STREAM ----------
         text_feats = None
@@ -363,6 +380,7 @@ class build_transformer(nn.Module):
 
         # training ─ return score + list /  eval ─ return feats
 
+        # ---------- CAPTION STREAM ----------
         
 
      
@@ -403,6 +421,7 @@ class build_transformer(nn.Module):
 
    
 
+       
 
         if self.training:
             if self.ID_LOSS_TYPE in ('arcface', 'cosface', 'amsoftmax', 'circle'):
@@ -424,6 +443,36 @@ class build_transformer(nn.Module):
                 feat_list.append(t_cls)                   # teacher RGB
             return cls_score, feat_list
 
+        # ---------- PACK RETURN LIST ----------
+        #feat_list = [global_feat, global_feat1, global_feat2, global_feat3, text_feats]
+
+        # # teacher CLS (optional, may be None)
+        # if self.teacher_vis:
+        #     with torch.no_grad():
+        #         t_raw = self.teacher_vis(x1)                    # (B,1024 or 768 ...)
+        #     feat_list.append(self.teacher_proj(t_raw) if self.teacher_proj else t_raw)
+
+
+        # if self.training:
+        #     if self.ID_LOSS_TYPE in ('arcface', 'cosface', 'amsoftmax', 'circle'):
+        #         cls_score = self.classifier(feat, label)
+        #     else:
+        #         cls_score = self.classifier(feat)
+
+   
+        #     feat_list = [
+        #     global_feat1,      # RGB stream        – shape [B, in_planes]
+        #     global_feat2,      # IR  stream
+        #     global_feat3,      # TI  stream
+        #     text_feats  ]       # caption stream    – None or [L,B,in_planes]]
+
+        #     if self.teacher_vis is not None:
+        #         with torch.no_grad():
+        #             t_raw = self.teacher_vis(x1)          # teacher on RGB only
+        #         t_cls = self.teacher_proj(t_raw) if self.teacher_proj else t_raw
+        #         feat_list.append(t_cls)                   # teacher RGB
+        #     return cls_score, feat_list
+
         
 
         else:
@@ -431,6 +480,7 @@ class build_transformer(nn.Module):
                 return feat
             else:
                 return global_feat
+
 
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)
