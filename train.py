@@ -10,11 +10,13 @@ import torch
 import numpy as np
 import os
 import argparse
-# from timm.scheduler import create_scheduler
 from config import cfg
 import torch.distributed as dist
 
 torch.cuda.empty_cache()
+
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def set_seed(seed):
     torch.manual_seed(seed)

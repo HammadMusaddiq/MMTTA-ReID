@@ -18,7 +18,6 @@ for some einops/einsum fun
 * Simple transformer style inspired by Andrej Karpathy's https://github.com/karpathy/minGPT
 * Bert reference code checks against Huggingface Transformers and Tensorflow Bert
 
-Hacked together by / Copyright 2020 Ross Wightman
 """
 import math
 from functools import partial
@@ -134,7 +133,16 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
+class AdapterBlock(nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.down = nn.Linear(embed_dim, embed_dim // 2)
+        self.act  = nn.GELU()
+        self.up   = nn.Linear(embed_dim // 2, embed_dim)
+        nn.init.zeros_(self.up.weight)         # start as identity
 
+    def forward(self, x):
+        return x + self.up(self.act(self.down(x)))
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
@@ -187,7 +195,7 @@ class Block(nn.Module):
 class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768, num_mod_types=3):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
@@ -197,14 +205,28 @@ class PatchEmbed(nn.Module):
         self.num_patches = num_patches
 
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.mod_type_embed = nn.Embedding(num_mod_types, embed_dim)
+        trunc_normal_(self.mod_type_embed.weight, std=.02)
 
-    def forward(self, x):
+    def forward(self, x, mod_id=None):
+        # B, C, H, W = x.shape
+        # # FIXME look at relaxing size constraints
+        # assert H == self.img_size[0] and W == self.img_size[1], \
+        #     f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        # x = self.proj(x).flatten(2).transpose(1, 2)
+        # return x
         B, C, H, W = x.shape
-        # FIXME look at relaxing size constraints
+                    #### FIXME look at relaxing size constraints
         assert H == self.img_size[0] and W == self.img_size[1], \
             f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
-        x = self.proj(x).flatten(2).transpose(1, 2)
-        return x
+        patches = self.proj(x).flatten(2).transpose(1, 2)  # (B, num_patches, D)
+        if mod_id is not None:
+            # Ensure mod_id is a tensor of shape (B,)
+            if not torch.is_tensor(mod_id):
+                mod_id = torch.tensor([mod_id] * B, device=x.device)
+            mod_vec = self.mod_type_embed(mod_id).unsqueeze(1)  # (B, 1, D)
+            patches = patches + mod_vec  # broadcast over all patches
+        return patches
 
 
 class HybridEmbed(nn.Module):
@@ -251,7 +273,8 @@ class HybridEmbed(nn.Module):
 class PatchEmbed_overlap(nn.Module):
     """ Image to Patch Embedding with overlapping patches
     """
-    def __init__(self, img_size=224, patch_size=16, stride_size=20, in_chans=3, embed_dim=768):
+    def __init__(self, img_size=224, patch_size=16, stride_size=20,
+                 in_chans=3, embed_dim=768, num_mod_types=3):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
@@ -265,6 +288,8 @@ class PatchEmbed_overlap(nn.Module):
         self.num_patches = num_patches
 
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride_size)
+        self.mod_type_embed = nn.Embedding(num_mod_types, embed_dim)
+        trunc_normal_(self.mod_type_embed.weight, std=.02)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -276,7 +301,7 @@ class PatchEmbed_overlap(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def forward(self, x):
+    def forward(self, x, mod_id=None):
         B, C, H, W = x.shape
 
         # FIXME look at relaxing size constraints
@@ -284,8 +309,14 @@ class PatchEmbed_overlap(nn.Module):
             f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
         x = self.proj(x)
 
-        x = x.flatten(2).transpose(1, 2) # [64, 8, 768]
-        return x
+        # x = x.flatten(2).transpose(1, 2) # [64, 8, 768]
+        # return x
+        patches = x.flatten(2).transpose(1, 2)      # (B, N, D)
+        if mod_id is not None:
+            if not torch.is_tensor(mod_id):
+                mod_id = torch.tensor([mod_id] * B, device=x.device)
+            patches = patches + self.mod_type_embed(mod_id).unsqueeze(1)
+        return patches
 
 
 class TransReID(nn.Module):
@@ -293,8 +324,11 @@ class TransReID(nn.Module):
     """
     def __init__(self, img_size=224, patch_size=16, stride_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0., camera=0, view=0,
-                 drop_path_rate=0., hybrid_backbone=None, norm_layer=nn.LayerNorm, local_feature=False, sie_xishu =1.0):
+                 drop_path_rate=0., hybrid_backbone=None, norm_layer=nn.LayerNorm, local_feature=False, sie_xishu =1.0, num_mod_types=3):
         super().__init__()
+        # self.mod_type_embed = nn.Embedding(num_mod_types, embed_dim)
+        # trunc_normal_(self.mod_type_embed.weight, std=.02)
+        self.num_mod_types = num_mod_types 
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.local_feature = local_feature
@@ -302,14 +336,23 @@ class TransReID(nn.Module):
             self.patch_embed = HybridEmbed(
                 hybrid_backbone, img_size=img_size, in_chans=in_chans, embed_dim=embed_dim)
         else:
+            # self.patch_embed = PatchEmbed_overlap(
+            #     img_size=img_size, patch_size=patch_size, stride_size=stride_size, in_chans=in_chans,
+            #     embed_dim=embed_dim)
+            #self.num_mod_types = kwargs.get("num_mod_types", 3)   # default = RGB + IR + TI
             self.patch_embed = PatchEmbed_overlap(
-                img_size=img_size, patch_size=patch_size, stride_size=stride_size, in_chans=in_chans,
-                embed_dim=embed_dim)
+                img_size=img_size, patch_size=patch_size, stride_size=stride_size,
+                in_chans=in_chans, embed_dim=embed_dim,
+                num_mod_types=self.num_mod_types)
 
         num_patches = self.patch_embed.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        #self.mod_tokens = nn.Parameter(torch.zeros(3, 1, embed_dim))  # RGB, IR, TI
+        self.mod_tokens = nn.Parameter(torch.zeros(self.num_mod_types, 1, embed_dim))
+        #trunc_normal_(self.mod_tokens, std=.02)
+        nn.init.trunc_normal_(self.mod_tokens, std=.02)
         self.cam_num = camera
         self.view_num = view
         self.sie_xishu = sie_xishu
@@ -344,6 +387,12 @@ class TransReID(nn.Module):
             for i in range(depth)])
 
         self.norm = norm_layer(embed_dim)
+        # self.edit_adapter1 = AdapterBlock(self.embed_dim)
+        # self.edit_adapter2 = AdapterBlock(self.embed_dim)
+        self.proj_to_1024 = nn.Linear(embed_dim, 1024, bias=False)
+        self.edit_adapter1 = AdapterBlock(1024)
+        self.edit_adapter2 = AdapterBlock(1024)
+        self.embed_dim_out = 1024  # keep a handle for downstream dims
 
         # Classifier head
         self.fc = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -372,12 +421,14 @@ class TransReID(nn.Module):
         self.num_classes = num_classes
         self.fc = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, camera_id, view_id):
+    def forward_features(self, x, mod_id: int, camera_id=None, view_id=None):
         B = x.shape[0]
-        x = self.patch_embed(x)
+        x = self.patch_embed(x, mod_id)
 
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-        x = torch.cat((cls_tokens, x), dim=1)
+        # cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        # x = torch.cat((cls_tokens, x), dim=1)
+        mod_tok = self.mod_tokens[mod_id].expand(B, -1, -1)  # [B,1,C]
+        x = torch.cat([mod_tok, x], dim=1)
 
         if self.cam_num > 0 and self.view_num > 0:
             x = x + self.pos_embed + self.sie_xishu * self.sie_embed[camera_id * self.view_num + view_id]
@@ -400,11 +451,17 @@ class TransReID(nn.Module):
                 x = blk(x)
 
             x = self.norm(x)
+            x = self.proj_to_1024(x)        # (B,N,1024)
+            x = self.edit_adapter1(x)
+            x = self.edit_adapter2(x)
 
             return x[:, 0]
 
-    def forward(self, x, cam_label=None, view_label=None):
-        x = self.forward_features(x, cam_label, view_label)
+    # def forward(self, x, cam_label=None, view_label=None):
+    #     x = self.forward_features(x, cam_label, view_label)
+    #     return x
+    def forward(self, x, mod_id: int = 0, cam_label=None, view_label=None):
+        x = self.forward_features(x, mod_id, cam_label, view_label)
         return x
 
     def load_param(self, model_path, test_time_training=False):

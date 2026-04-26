@@ -56,7 +56,7 @@ class CombinedSet(BaseImageDataset):
         self.num_gallery_imgs = len(self.gallery)
 
 
-def load_multi_dataset(cfg, root):
+def load_multi_dataset(cfg, root, c_modality = None):
     """
     Decide which datasets to pack together based on cfg.DATASETS.NAMES.
     Example yaml:
@@ -79,9 +79,10 @@ def load_multi_dataset(cfg, root):
         cls   = name_map[name.lower()]
         ds    = cls(root=root,
                     i_modality=cfg.IMAGE_MODALITY,
-                    c_modality=(cfg.IMAGE_MODALITY if (
-                                    cfg.CAPTION.ENABLE and cfg.CAPTION.STRATEGY=="matched")
-                                else (["RGB"] if cfg.CAPTION.ENABLE else [])),
+                    # c_modality=(cfg.IMAGE_MODALITY if (
+                    #                 cfg.CAPTION.ENABLE and cfg.CAPTION.STRATEGY=="matched")
+                    #             else (["RGB"] if cfg.CAPTION.ENABLE else [])),
+                    c_modality = c_modality,
                     pid_begin=pid_bias,
                     verbose= not cfg.DATASETS.MULTI)
         pid_bias += ds.num_train_pids     # avoid id collision *inside* each loader
@@ -91,6 +92,6 @@ def load_multi_dataset(cfg, root):
 
     combined.print_dataset_statistics(combined.train,
                                       combined.query,
-                                      combined.gallery)
+                                      combined.gallery, c_modality)
     
     return combined

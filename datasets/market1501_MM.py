@@ -55,10 +55,10 @@ class Market1501_MM(BaseImageDataset):
         self.query_dir    = osp.join(self.dataset_dir, 'query')
         self.gallery_dir  = osp.join(self.dataset_dir, 'gallery')
 
-        self.caption_dir  = osp.join(root, 'cap_predictions', 'Market1501 Captions')
-        self.train_prefix = 'Market1501-bbox-train'
-        self.query_prefix = 'Market1501-query'
-        self.test_prefix  = 'Market1501-bbox-test'
+        self.caption_dir  = osp.join(root, 'cap_predictions', 'Market-MM Captions')
+        self.train_prefix = 'Market-MM-train'
+        self.query_prefix = 'Market-MM-query'
+        self.test_prefix  = 'Market-MM-gallery'
         # -------------------------------------------------------------------
 
         self._check_before_run()

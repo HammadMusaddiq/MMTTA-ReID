@@ -7,7 +7,9 @@ import torch
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 import os
 import pandas as pd
+import logging
 
+logger = logging.getLogger("transreid.data.stats")
 
 def read_image(img_path):
     """Keep reading image until succeed.
@@ -125,7 +127,13 @@ class BaseImageDataset(BaseDataset):
 
         df = pd.DataFrame(stats)
         print("=> Dataset statistics:")
-        print(df.to_markdown(index=False))
+        # print(df.to_markdown(index=False))
+
+        # Log to logger
+        logger.info("=> Dataset statistics:\n%s", df.to_markdown(index=False))
+
+        # Log to logger
+        logger.info("=> Dataset statistics:\n%s", df.to_markdown(index=False))
 
 
 

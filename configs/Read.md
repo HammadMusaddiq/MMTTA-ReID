@@ -37,12 +37,12 @@
     <tr>
       <td><code>vit_base_3M-RGB+IR+TI.yml</code></td>
       <td><strong>RGB + IR + TI</strong></td>
-      <td>Three-modality setup (RGB, IR, Thermal). The model uses <strong>dynamic fusion strategies</strong> to integrate visual modalities.</td>
+      <td>Three-modality setup (RGB, IR, Thermal). The model uses <strong>dynamic fusion strategies</strong> to integrate inputs.</td>
     </tr>
     <tr>
       <td><code>vit_base_4M-RGB+IR+TI+1Caption-RGB.yml</code></td>
       <td><strong>RGB + IR + TI + 1 Caption (RGB)</strong></td>
-      <td>Introduces a <strong>caption branch</strong> that uses only RGB image captions (e.g., generated via BLIP). <strong>BERT encodings</strong> are aligned using contrastive and triplet loss.</td>
+      <td>Introduces a <strong>caption branch</strong> using only RGB image captions (e.g., generated via BLIP). <strong>BERT encodings</strong> aligned using contrastive and triplet loss.</td>
     </tr>
     <tr>
       <td><code>vit_base_4M-RGB+IR+TI+All-Caption.yml</code></td>
@@ -60,7 +60,7 @@
   <li>🧠 Caption-based configs require <code>caption_path</code> and <code>caption_embedding</code> (e.g., <code>bert</code>)</li>
   <li>🔗 Fusion tokens (e.g., CLS) and loss functions are adapted per modality setup</li>
   <li>📂 Dataset paths and preprocessing are customized for CeLReID (<code>/mnt/data/...</code>)</li>
-  <li>📌 <strong>NEW:</strong> All configs now include the <code>DATASETS.MULTI=True</code> and <code>DATASETS.NAMES=[rgbnt201, CelebReID]</code> flag to support combined multimodal training across multiple datasets. This allows the model to be trained on a **combination of datasets**, rather than a single dataset.</li>
+  <li>📌 <strong>NEW:</strong> All configs now include <code>DATASETS.MULTI=True</code> and <code>DATASETS.NAMES=[rgbnt201, CelebReID]</code> to support combined multimodal training across multiple datasets.</li>
 </ul>
 
 <hr>
@@ -68,12 +68,26 @@
 <h3>▶️ <strong>Usage</strong></h3>
 <p>To train a model using a specific config file:</p>
 
-<pre><code>python train.py --config-file configs/vit_base_3M-RGB+IR+TI.yml
-</code></pre>
+<pre><code>python train.py --config_file configs/vit_base_3M-RGB+IR+TI.yml</code></pre>
 
 <p><strong>Ensure the following:</strong></p>
 <ul>
   <li>📁 Dataset folders and captions are correctly mounted</li>
   <li>🔧 Transformer model supports fusion and caption integration</li>
   <li>📉 Loss modules are enabled to handle caption/image alignment (if applicable)</li>
+</ul>
+
+<hr>
+
+<h3>✨ <strong>Additional Parametric Changes in HTTT (Hydrogenious Test-Time Training)</strong></h3>
+<p>The following additional parameters are present in HTTT:</p>
+<ul>
+  <li><code>PRETRAIN_PATH</code>: <code>'models/jx_vit_base_p16_224-80ecf9dd.pth'</code><br>
+    Path to the pretrained vision transformer model weights.</li>
+  <li><code>CAPTION_MODEL_PATH</code>: <code>\"/mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased\"</code><br>
+    Path to the pretrained BERT caption model.</li>
+  <li><code>DATASETS.NAMES</code>: <code>[market1501, market1501_MM]</code><br>
+    Enables multimodal training over two datasets (Market1501 + Market1501_MM).</li>
+  <li><code>DATASETS.ROOT_DIR</code>: <code>\"/mnt/data2/Hammad/Datasets/ReID_data\"</code><br>
+    Root directory where dataset folders are stored.</li>
 </ul>

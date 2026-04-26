@@ -47,6 +47,10 @@ def do_train(cfg,
     top = [0, 0, 0, 0, 0]
     # train
     for epoch in range(1, epochs + 1):
+
+        if hasattr(train_loader.sampler, "set_epoch"):
+            train_loader.sampler.set_epoch(epoch)
+
         start_time = time.time()
         loss_meter.reset()
         acc_meter.reset()
@@ -99,6 +103,7 @@ def do_train(cfg,
                 loss = loss_fn(score, feat, target, target_cam, captions=feat[4])
 
             scaler.scale(loss).backward()
+            unscaled_loss = loss.detach() / scaler.get_scale()      # ← NEW
 
             scaler.step(optimizer)
             scaler.update()
@@ -115,6 +120,9 @@ def do_train(cfg,
                 acc = (score.max(1)[1] == target).float().mean()
 
             loss_meter.update(loss.item(), img1.shape[0])
+            #loss_meter.update(unscaled_loss.item(), img1.shape[0])   # ← FIXED
+            # real_loss = loss.detach() / scaler.get_scale()    # ← NEW
+            # loss_meter.update(real_loss.item(), img1.shape[0])
             acc_meter.update(acc, 1)
             # acc_cam_meter.update(acc_cam, 1)
 
@@ -140,6 +148,15 @@ def do_train(cfg,
             else:
                 torch.save(model.state_dict(),
                            os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_{}.pth'.format(epoch)))
+
+        # if (n_iter == 0 and epoch == 1):          # first batch only
+        #     logger.info(
+        #         f"[DEBUG] ID {ID_LOSS.item():.3f} | "
+        #         f"TRI {TRI_LOSS.item():.3f} | "
+        #         f"CAP {caption_loss.item():.3f} | "
+        #         f"DIST {DIST_LOSS.item():.3f}"
+        #     )
+
 
         if epoch % eval_period == 0:
             if cfg.MODEL.DIST_TRAIN:
@@ -182,6 +199,12 @@ def do_train(cfg,
 
                             evaluator.update((feat, vid, camid, target_view))
                     cmc, mAP, _, _, _, _, _ = evaluator.compute()
+                    if mAP > top[1]:
+                        top[1] = mAP; top[0] = epoch; top[2] = cmc[0]; top[3] = cmc[4]; top[4] = cmc[9]
+                        # torch.save(model.state_dict(),
+                        torch.save(model.module.state_dict(), 
+                            os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_best.pth'))
+                    
                     logger.info("Validation Results - Epoch: {}".format(epoch))
                     logger.info("mAP: {:.1%}".format(mAP))
                     for r in [1, 5, 10]:
@@ -197,35 +220,25 @@ def do_train(cfg,
                     if len(batch) == 7:                       # loader WITH captions
                         (img1, img2, img3,
                         captions,           # <-- index 3
-                        vid, camids, target_views) = batch
+                        vid, camid, target_view) = batch
                     else:                                     # loader WITHOUT captions
                         (img1, img2, img3,
-                        vid, camids, target_views) = batch
+                        vid, camid, target_view) = batch
                         captions = None                       # no captions in this batch
 
                     with torch.no_grad():
                         img1 = img1.to(device)
                         img2 = img2.to(device)
                         img3 = img3.to(device)
-                        camid = camids
-                        camids = camids.to(device)
-                        # target_view = target_views
-                        target_view = target_views.to(device)
+                        camid = camid.to(device)
+                        target_view = target_view.to(device)
                         # feat = model(img1, img2, img3, cam_label=camids, view_label=camids)
                         if cfg.CAPTION.ENABLE:
                             if isinstance(captions, torch.Tensor):
                                 print(f"[❌ ERROR] Captions is a Tensor: {captions}")
-                            feat = model(img1, img2, img3, cam_label=camids, view_label=target_view, captions=captions)
+                            feat = model(img1, img2, img3, cam_label=camid, view_label=target_view, captions=captions)
                         else:
-                            feat = model(img1, img2, img3, cam_label=camids, view_label=target_view)
-
-                        if captions is None:
-                            feat = model(img1, img2, img3,
-                                        cam_label=camids, view_label=target_views)
-                        else:
-                            feat = model(img1, img2, img3,
-                                        cam_label=camids, view_label=target_views,
-                                        captions=captions)
+                            feat = model(img1, img2, img3, cam_label=camid, view_label=target_view)
 
                         evaluator.update((feat, vid, camid, target_view))
                 cmc, mAP, _, _, _, _, _ = evaluator.compute()
@@ -354,6 +367,8 @@ def do_ttt(cfg,
                 acc = (score.max(1)[1] == target).float().mean()
 
             loss_meter.update(loss.item(), img1.shape[0])
+            # real_loss = loss.detach() / scaler.get_scale()    # ← NEW
+            # loss_meter.update(real_loss.item(), img1.shape[0])
             acc_meter.update(acc, 1)
             # acc_cam_meter.update(acc_cam, 1)
 
