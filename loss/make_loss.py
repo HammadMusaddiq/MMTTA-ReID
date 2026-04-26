@@ -36,6 +36,7 @@ def make_loss(cfg, num_classes):
     # Loss components
     criterion_m = multiModalMarginLossNew(margin=1)
     criterion_i = IDMarginLossNew(margin=0.5, dist_type='l1')
+    
     center_criterion = CenterLoss(num_classes=num_classes, feat_dim=feat_dim, use_gpu=True)
 
     if 'triplet' in cfg.MODEL.METRIC_LOSS_TYPE:

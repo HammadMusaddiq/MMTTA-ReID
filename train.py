@@ -58,6 +58,8 @@ if __name__ == '__main__':
     else:
         local_rank = 0                           # single-GPU
 
+    # rank = dist.get_rank() if dist.is_initialized() else 0
+
     rank = dist.get_rank() if dist.is_initialized() else 0
 
     output_dir = cfg.OUTPUT_DIR
@@ -75,6 +77,8 @@ if __name__ == '__main__':
             config_str = "\n" + cf.read()
             logger.info(config_str)
     logger.info("Running with config:\n{}".format(cfg))
+
+    device = torch.device("cuda", local_rank)
 
     train_mode = cfg.MODEL.TRAIN_MODE
     fuse_strategy = cfg.MODEL.FUSE_STRATEGY
@@ -95,7 +99,7 @@ if __name__ == '__main__':
     
     device = torch.device("cuda") if args.local_rank < 0 else torch.device("cuda", args.local_rank)
     
-    model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num, train_mode=train_mode, fuse_strategy=fuse_strategy, device=device)
+    model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num, train_mode=train_mode, fuse_strategy=fuse_strategy)
     model.to(device)
 
     if cfg.MODEL.DIST_TRAIN:
@@ -122,6 +126,7 @@ if __name__ == '__main__':
         num_query, local_rank
     )
 
+
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/RGBNT201/vit_base.yml
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/MSMT/vit_base.yml
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Market1501/vit_base.yml
@@ -133,8 +138,6 @@ if __name__ == '__main__':
 # CUDA_VISIBLE_DEVICES=1 python train.py --config_file configs/Market1501/vit_base_2M.yml
 # CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Market1501/vit_base_3M.yml
 
-# CUDA_VISIBLE_DEVICES=1,2 torchrun --standalone --nproc_per_node=2 train.py --config_file configs/Market1501/vit_base_3M.yml --dist
+# CUDA_VISIBLE_DEVICES=0,2 torchrun --standalone --nproc_per_node=2 train.py --config_file configs/Market1501/vit_base_3M.yml --dist
 
-# CUDA_VISIBLE_DEVICES=2 python train.py --config_file configs/Market1501/vit_base_4M_1C_test.yml
-# CUDA_VISIBLE_DEVICES=0,1 torchrun --standalone --nproc_per_node=2 train.py --config_file configs/Market1501/vit_base_4M_1C_test.yml --dist
 
