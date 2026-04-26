@@ -132,6 +132,9 @@ class BaseImageDataset(BaseDataset):
         # Log to logger
         logger.info("=> Dataset statistics:\n%s", df.to_markdown(index=False))
 
+        # Log to logger
+        logger.info("=> Dataset statistics:\n%s", df.to_markdown(index=False))
+
 
 
 class ImageDataset(Dataset):

@@ -1,4 +1,3 @@
-
 """
 nomic_backbones.py
 Utility wrappers that keep Nomic-Embed models fully **offline** and **frozen**.
@@ -25,66 +24,65 @@ _DEF_LOCAL = {
 }
 
 
+# ----------------------------------------------------------------------------- #
+#  Robust loader – never hits the Internet unless you explicitly allow it       #
+# ----------------------------------------------------------------------------- #
+def _safe_load(ckpt: str, local_only: bool = True):
+    """
+    Try to load a HF model from `ckpt`           (a directory or repo-id).
+    If that fails (and `local_only` is True), fall back to the local mirror defined above.
+    """
+    if os.path.isdir(ckpt):
+        return AutoModel.from_pretrained(ckpt, local_files_only=True, trust_remote_code=True)
+
+    # if local_only:
+    #     tag = "vision" if "vision" in ckpt.lower() else "text"
+    #     return AutoModel.from_pretrained(_DEF_LOCAL[tag], local_files_only=True, trust_remote_code=True)
+
+    # final fall-back: allow remote download
+    return AutoModel.from_pretrained(ckpt, trust_remote_code=True)
+
 
 # ----------------------------------------------------------------------------- #
 #  Frozen Nomic Vision – returns ℓ2-normalised CLS embeddings                   #
 # ----------------------------------------------------------------------------- #
 class FrozenNomicVision(nn.Module):
     """
-    CLS feature from the vision branch of nomic‑embed‑vision‑v1.5
-    Returned dim = 1024, matching TransReID after the adapters.
+    Wrapper around `nomic-ai/nomic-embed-vision-v1.5`.
+    Accepts **either** pre-processed dicts (`pixel_values`, …) **or** raw
+    tensors / PIL images.  All params are frozen.
     """
-    def __init__(self,
-                 model_name: str = "nomic-ai/nomic-embed-vision-v1.5"):
+
+    # def __init__(self, ckpt: str = _DEF_LOCAL["vision"], local_only: bool = True,
+    #     device: torch.device | str | None = None,):
+    #     super().__init__()
+    
+    def __init__(self, ckpt: str, local_only: bool = True,
+                device: Union[torch.device, str, None] = None):
         super().__init__()
-        self.model = AutoModel.from_pretrained(model_name, local_files_only=True, trust_remote_code=True)
-        self.processor  = AutoImageProcessor.from_pretrained(model_name, local_files_only=True, trust_remote_code=True)
-        self.out_dim = self.model.config.hidden_size   # 1024
+
         
-        self.model.eval()
-        for p in self.parameters():
+        #self.backbone   = _safe_load(ckpt, local_only).eval().to(device)
+        dev = torch.device(device) if device is not None else torch.device("cpu")
+        self.backbone = _safe_load(ckpt, local_only).to(dev).eval()
+        self.processor  = AutoImageProcessor.from_pretrained(ckpt, local_files_only=True)
+        for p in self.backbone.parameters():
             p.requires_grad_(False)
 
+    @torch.no_grad()
     def forward(self, images):
-        # pixel_values expects float in [0,1] resized to 224×224. Caller handles
-        # any resizing/normalisation – here we extract the CLS token.
-        #out = self.model(pixel_values=images, output_hidden_states=True)
-        # batch = self.processor(images=images, return_tensors="pt")\
-        #             .to(images.device, images.dtype)
-        if images.min() < 0:
-            images = images * 0.5 + 0.5
-        images = images.clamp_(0, 1)
-        imgs_np = [img.permute(1, 2, 0).cpu().numpy() for img in images]
-        # batch = self.processor(images=imgs_np, return_tensors="pt",do_rescale=False).to(images.device)
+        # preprocessing --------------------------------------------------------
+        if isinstance(images, dict):                      # already tokenised
+            batch = {k: v.to(self.backbone.device) for k, v in images.items()}
+        else: 
+            if images.max() > 1.0 or images.min() < 0.0:
+                images = (images - images.min()) / (images.max() - images.min())
+            batch = self.processor(images, return_tensors="pt").to(self.backbone.device)                                            # raw tensor / PIL
+            #batch = self.processor(images, return_tensors="pt").to(self.backbone.device)
 
-        # # batch = self.processor(images=images, return_tensors="pt")\
-        # #             .to(images.device, images.dtype)
-        # out = self.model(**batch, output_hidden_states=True)
-        #  #return out.hidden_states[-1][:, 0]       # (B,1024)
-        # return out.hidden_states[-1][:, 0]          # (B,1024)
-        batch = self.processor(
-            images=imgs_np,
-            return_tensors="pt",
-            do_rescale=False
-        ).to(images.device)
-
-        outputs = self.model(**batch)               # no extra kwargs
-
-        # nomic-embed-vision returns a dict with the key `"embeds"`
-        # (for safety we fall back to common field names)
-        if isinstance(outputs, dict):
-            if "embeds" in outputs:
-                cls = outputs["embeds"]             # (B,1024)
-            elif "image_embeds" in outputs:
-                cls = outputs["image_embeds"]
-            elif "last_hidden_state" in outputs:
-                cls = outputs["last_hidden_state"][:, 0]
-            else:
-                raise RuntimeError("Cannot find vision embedding in model output")
-        else:                                       # tuple or tensor
-            cls = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
-
-        return cls                                  # (B,1024)
+        # model forward --------------------------------------------------------
+        out = self.backbone(**batch).last_hidden_state[:, 0]   # CLS token
+        return F.normalize(out, p=2, dim=-1)                  # [B, 1024]
 
 
 # ----------------------------------------------------------------------------- #
@@ -92,30 +90,35 @@ class FrozenNomicVision(nn.Module):
 # ----------------------------------------------------------------------------- #
 class FrozenNomicText(nn.Module):
     """
-    CLS feature from the text branch of nomic‑embed‑text‑v1.5
-    Returned dim = 768.
+    Wrapper around `nomic-ai/nomic-embed-text-v1.5`.
+    Pass a tokenised batch (input_ids, attention_mask, …).  All params frozen.
     """
-    def __init__(self,
-                 model_name: str = "nomic-ai/nomic-embed-text-v1.5"):
+
+    # def __init__(self, ckpt: str = _DEF_LOCAL["text"], local_only: bool = True,
+    #     device: torch.device | str | None = None,):
+    #     super().__init__()
+
+
+    def __init__(self, ckpt: str, local_only: bool = True,
+                device: Union[torch.device, str, None] = None):
         super().__init__()
-        self.processor = AutoTokenizer.from_pretrained(model_name)
-        self.model     = AutoModel.from_pretrained(model_name)
-        self.out_dim   = self.model.config.hidden_size               # 768
-        self.model.eval()
-        for p in self.parameters():
+
+
+        #self.backbone = _safe_load(ckpt, local_only).eval()
+        dev = torch.device(device) if device is not None else torch.device("cpu")
+        self.backbone = _safe_load(ckpt, local_only).to(dev).eval()
+        for p in self.backbone.parameters():
             p.requires_grad_(False)
 
-    def forward(self, captions):
+    @torch.no_grad()
+    def forward(self, **inputs):
         """
-        `captions` is a python list [str] (batch) or list [list[str]]
-        Matching make_dataloader, we keep the outer list length = B.
+        Example call:
+            tok = tokenizer(["search_query: …"], return_tensors='pt')
+            emb = text_encoder(**tok)
         """
-        if isinstance(captions[0], list):
-            captions = [' '.join(c) for c in captions]   # flatten per‑sample list
-        enc = self.processor(captions,
-                             padding=True,
-                             truncation=True,
-                             return_tensors="pt").to(
-                             next(self.model.parameters()).device)
-        out = self.model(**enc, output_hidden_states=True)
-        return out.last_hidden_state[:, 0]          # CLS → (B,768)
+        #outputs = self.backbone(**inputs)
+        outputs = self.backbone(**{k: v.to(self.backbone.device, non_blocking=True)
+                                   for k, v in inputs.items()})
+        cls_vec = outputs.last_hidden_state[:, 0]          # [B, 1024]
+        return F.normalize(cls_vec, p=2, dim=-1)

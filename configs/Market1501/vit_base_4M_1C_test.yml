@@ -29,18 +29,14 @@ INPUT:
   PIXEL_STD: [0.5, 0.5, 0.5]
 
 DATASETS:
-  MULTI: False                 # False → use the single dataset in NAMES
-  NAMES: [market1501]
-  # NAMES: [msmt17]
+  MULTI: True                 # False → use the single dataset in NAMES
+  NAMES: [market1501, market1501_MM, msmt17 ]
   ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
 
 DATALOADER:
   SAMPLER: 'softmax_triplet'
   NUM_INSTANCE: 4
   NUM_WORKERS: 16
-  persistent_workers: True
-  pin_memory: True
-  prefetch_factor: 4
 
 IMAGE_MODALITY: ["RGB", "IR", "TI"]
 
@@ -57,18 +53,18 @@ CAPTION:
 
 
 TRAIN:
-  ADAPTER_ONLY: True
+  ADAPTER_ONLY: False
 
 SOLVER:
   OPTIMIZER_NAME: 'AdamW'
-  MAX_EPOCHS: 90
+  MAX_EPOCHS: 120
   BASE_LR: 3e-5
   IMS_PER_BATCH: 64
   WARMUP_METHOD: 'linear'
   LARGE_FC_LR: False
-  CHECKPOINT_PERIOD: 1
+  CHECKPOINT_PERIOD: 5
   LOG_PERIOD: 50
-  EVAL_PERIOD: 1
+  EVAL_PERIOD: 5
   WEIGHT_DECAY:  0.05
   WEIGHT_DECAY_BIAS: 1e-4
   BIAS_LR_FACTOR: 2
@@ -89,6 +85,5 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/Market1501/4M-RGB-text-final-3'
-# OUTPUT_DIR: './logs/MSMT/4M-RGB-text-final-1'
+OUTPUT_DIR: './logs/Market1501/4M-RGB-text-multidata-multigpu'
 #now loss function adjusted

@@ -64,7 +64,7 @@ def make_loss(cfg, num_classes):
                 ID_LOSS = F.cross_entropy(score, target)
 
             # -------- IMAGE MODALITY LOSSES --------
-
+            # -------- IMAGE-MODALITY LOSSES ----------------------------------
             rgb = pick(feat, 1)
             ir  = pick(feat, 2)
             ti  = pick(feat, 3)
@@ -83,9 +83,8 @@ def make_loss(cfg, num_classes):
  
             # -------- DISTILLATION LOSS -------------------------------------
             teacher_rgb = pick(feat, 5)
-            student_rgb  = pick(feat, 1)   # RGB-CLS (B,1024)
-            if distill is not None and teacher_rgb is not None and student_rgb is not None:
-                DIST_LOSS = distill(student_rgb, teacher_rgb)
+            if distill is not None and teacher_rgb is not None:
+                DIST_LOSS = distill(anchor, teacher_rgb)
             else:
                 DIST_LOSS = torch.tensor(0.0, device=target.device)
 
