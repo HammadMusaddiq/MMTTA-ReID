@@ -1,2 +1,4 @@
 # Ignore model files
 *.pth
+
+**__pycache__**/
