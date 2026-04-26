@@ -1,25 +1,121 @@
-import torch.nn as nn, torch
-#from transformers import AutoModel
-from transformers import AutoModel, AutoImageProcessor
-#from sentence_transformers import SentenceTransformer
+
+"""
+nomic_backbones.py
+Utility wrappers that keep Nomic-Embed models fully **offline** and **frozen**.
+"""
+
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from transformers import (
+    AutoModel,
+    AutoImageProcessor,
+    AutoTokenizer,
+    AutoConfig,
+)
+from typing import Union
+
+# ----------------------------------------------------------------------------- #
+#  Local mirrors – edit these two paths once, keep the rest of the code clean   #
+# ----------------------------------------------------------------------------- #
+_DEF_LOCAL = {
+    "vision": "model/nomic/nomic_vision",  # <-- put real paths here
+    "text": "model/nomic/nomic_text",
+}
+
+
+
+# ----------------------------------------------------------------------------- #
+#  Frozen Nomic Vision – returns ℓ2-normalised CLS embeddings                   #
+# ----------------------------------------------------------------------------- #
 class FrozenNomicVision(nn.Module):
-    def __init__(self, ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_vision/"):
+    """
+    CLS feature from the vision branch of nomic‑embed‑vision‑v1.5
+    Returned dim = 1024, matching TransReID after the adapters.
+    """
+    def __init__(self,
+                 model_name: str = "nomic-ai/nomic-embed-vision-v1.5"):
         super().__init__()
-        self.backbone = AutoModel.from_pretrained(ckpt,local_files_only=True, trust_remote_code=True)
-        for p in self.backbone.parameters():
+        self.model = AutoModel.from_pretrained(model_name, local_files_only=True, trust_remote_code=True)
+        self.processor  = AutoImageProcessor.from_pretrained(model_name, local_files_only=True, trust_remote_code=True)
+        self.out_dim = self.model.config.hidden_size   # 1024
+        
+        self.model.eval()
+        for p in self.parameters():
             p.requires_grad_(False)
 
-    def forward(self, x):                 # x = (B,3,H,W)
-        return self.backbone(x).last_hidden_state[:, 0]  # CLS
+    def forward(self, images):
+        # pixel_values expects float in [0,1] resized to 224×224. Caller handles
+        # any resizing/normalisation – here we extract the CLS token.
+        #out = self.model(pixel_values=images, output_hidden_states=True)
+        # batch = self.processor(images=images, return_tensors="pt")\
+        #             .to(images.device, images.dtype)
+        if images.min() < 0:
+            images = images * 0.5 + 0.5
+        images = images.clamp_(0, 1)
+        imgs_np = [img.permute(1, 2, 0).cpu().numpy() for img in images]
+        # batch = self.processor(images=imgs_np, return_tensors="pt",do_rescale=False).to(images.device)
 
+        # # batch = self.processor(images=images, return_tensors="pt")\
+        # #             .to(images.device, images.dtype)
+        # out = self.model(**batch, output_hidden_states=True)
+        #  #return out.hidden_states[-1][:, 0]       # (B,1024)
+        # return out.hidden_states[-1][:, 0]          # (B,1024)
+        batch = self.processor(
+            images=imgs_np,
+            return_tensors="pt",
+            do_rescale=False
+        ).to(images.device)
+
+        outputs = self.model(**batch)               # no extra kwargs
+
+        # nomic-embed-vision returns a dict with the key `"embeds"`
+        # (for safety we fall back to common field names)
+        if isinstance(outputs, dict):
+            if "embeds" in outputs:
+                cls = outputs["embeds"]             # (B,1024)
+            elif "image_embeds" in outputs:
+                cls = outputs["image_embeds"]
+            elif "last_hidden_state" in outputs:
+                cls = outputs["last_hidden_state"][:, 0]
+            else:
+                raise RuntimeError("Cannot find vision embedding in model output")
+        else:                                       # tuple or tensor
+            cls = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+
+        return cls                                  # (B,1024)
+
+
+# ----------------------------------------------------------------------------- #
+#  Frozen Nomic Text – returns pooled CLS embeddings                            #
+# ----------------------------------------------------------------------------- #
 class FrozenNomicText(nn.Module):
-    def __init__(self, ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/"):
+    """
+    CLS feature from the text branch of nomic‑embed‑text‑v1.5
+    Returned dim = 768.
+    """
+    def __init__(self,
+                 model_name: str = "nomic-ai/nomic-embed-text-v1.5"):
         super().__init__()
-        self.text = AutoModel.from_pretrained(ckpt,local_files_only=True, trust_remote_code=True)
-        for p in self.text.parameters():
+        self.processor = AutoTokenizer.from_pretrained(model_name)
+        self.model     = AutoModel.from_pretrained(model_name)
+        self.out_dim   = self.model.config.hidden_size               # 768
+        self.model.eval()
+        for p in self.parameters():
             p.requires_grad_(False)
 
-    def forward(self, token_ids):         # tokenised captions
-        return self.text(**token_ids).last_hidden_state[:, 0]
-
-#processor = AutoImageProcessor.from_pretrained(model_dir, local_files_only=True)
+    def forward(self, captions):
+        """
+        `captions` is a python list [str] (batch) or list [list[str]]
+        Matching make_dataloader, we keep the outer list length = B.
+        """
+        if isinstance(captions[0], list):
+            captions = [' '.join(c) for c in captions]   # flatten per‑sample list
+        enc = self.processor(captions,
+                             padding=True,
+                             truncation=True,
+                             return_tensors="pt").to(
+                             next(self.model.parameters()).device)
+        out = self.model(**enc, output_hidden_states=True)
+        return out.last_hidden_state[:, 0]          # CLS → (B,768)

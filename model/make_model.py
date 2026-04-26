@@ -8,7 +8,17 @@ import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 from model.nomic_backbones import FrozenNomicVision, FrozenNomicText
 #from sentence_transformers import SentenceTransformer
-
+# Small utility so we don’t crash when a modality is missing
+def pick_feats(feat_list, idx):
+    """
+    Returns feat_list[idx] if it exists **and** is not None,
+    otherwise returns None.
+    """
+    return (
+        feat_list[idx]
+        if (len(feat_list) > idx and feat_list[idx] is not None)
+        else None
+    )
 def shuffle_unit(features, shift, group, begin=1):
 
     batchsize = features.size(0)
@@ -103,6 +113,9 @@ class Backbone(nn.Module):
         global_feat = torch.cat([global_feat1, global_feat2, global_feat3], dim=1)
         feat = self.bottleneck(global_feat)
 
+        # -------------------------------------------------------------
+        # DEBUG: inspect features once per step on main GPU
+     
         if self.training:
             if self.cos_layer:
                 cls_score = self.arcface(feat, label)
@@ -132,7 +145,7 @@ class Backbone(nn.Module):
 
 # model class for 3 modalities
 class build_transformer(nn.Module):
-    def __init__(self, num_classes, camera_num, view_num, cfg, factory):
+    def __init__(self, num_classes, camera_num, view_num, cfg, factory, device):
         super(build_transformer, self).__init__()
         # --- Static dims ---
         self.vit_dim   = 768            # ViT backbone width
@@ -151,41 +164,54 @@ class build_transformer(nn.Module):
         self.use_caption = cfg.CAPTION.ENABLE
         self.distill_on  = cfg.MODEL.DISTILL.ENABLE
         caption_model_path = cfg.MODEL.CAPTION_MODEL_PATH
-        device = torch.device(cfg.MODEL.DEVICE)
+        # device = torch.device(cfg.MODEL.DEVICE)
 
         # --- Caption encoder and tokenizer ---
         if self.use_caption:
             self.caption_strategy = cfg.CAPTION.STRATEGY
-            self.caption_modalities = cfg.CAPTION.MODALITY if self.caption_strategy == "matched" else ["RGB"]
-            self.text_encoder = FrozenNomicText(
-                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/"
-            )
-            self.text_encoder = self.text_encoder.to(device).eval()
+            self.caption_modalities = cfg.IMAGE_MODALITY if self.caption_strategy == "matched" else ["RGB"]
+            self.text_encoder = AutoModel.from_pretrained(f"{caption_model_path}/nomic_text/", local_files_only=True, trust_remote_code=True)
+            self.text_encoder.to(device)
+            self.text_encoder.eval()
+
+            text_device = next(self.text_encoder.parameters()).device
+
+            # self.text_encoder = self.text_encoder.to(device).eval()
             # self.text_encoder.to(torch.device(cfg.MODEL.DEVICE))  #new add 
             # self.text_encoder.eval()  #new add
-            self.tokenizer = AutoTokenizer.from_pretrained("/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_text/", local_files_only=True, trust_remote_code=True)
+            self.tokenizer = AutoTokenizer.from_pretrained(f"{caption_model_path}/nomic_text/", local_files_only=True, trust_remote_code=True)
+
             with torch.no_grad():
-                dummy_tok = AutoTokenizer.from_pretrained(
-                    caption_model_path, local_files_only=True, trust_remote_code=True
-                )("dummy", return_tensors="pt")
-                device = next(self.text_encoder.parameters()).device
-                dummy_tok = {k: v.to(device) for k, v in dummy_tok.items()}
-                txt_dim_out = self.text_encoder(token_ids=dummy_tok).shape[-1]   # 768
-            self.txt_dim = txt_dim_out          # overwrite the placeholder 1024
+                dummy_inputs = self.tokenizer("search_document: dummy", return_tensors="pt").to(text_device)
+                #dummy_tok = {k: v.to(next(self.text_encoder.parameters()).device) for k, v in dummy_tok.items()}
+                cls_vec      = self.text_encoder(**dummy_inputs).last_hidden_state[:, 0]  # [1, dim]
+                self.txt_dim = cls_vec.shape[-1]          # e.g. 1024
+
+            
+            # ➌  Projection into ViT width ----------------------------------------
+            self.cap_proj = nn.Linear(self.txt_dim, self.in_planes, bias=False)
+            self.cap_proj.apply(weights_init_kaiming)
+            self.text_encoder.requires_grad_(False)
         
         else:
-            self.caption_strategy = None
-            self.caption_modalities = None
-            self.text_encoder = None
-            self.tokenizer = None
+            self.text_encoder = self.tokenizer = None
+            self.txt_dim      = 0
+            self.cap_proj     = None
+            # self.caption_strategy = None
+            # self.caption_modalities = None
+            # self.text_encoder = None
+            # self.tokenizer = None
 
         # --- Teacher vision encoder ---
         self.teacher_vis = (
             FrozenNomicVision(
-                ckpt="/data_sata/ReID_Group/ReID_Group/TestTimeTraining/MMTTA-ReID-v1-Umair-2/MMTTA-ReID-4M-v1-Umair/model/nomic/nomic_vision/"
+                f"{caption_model_path}/nomic_vision/"
             ).to(device).eval() if self.distill_on else None
         )
 
+        if self.teacher_vis is not None:
+            self.teacher_vis.requires_grad_(False)
+        
         print('using Transformer_type: {} as a backbone'.format(cfg.MODEL.TRANSFORMER_TYPE))
 
         # --- Camera/view logic ---
@@ -217,6 +243,10 @@ class build_transformer(nn.Module):
         #     self.in_planes = 384
         self.in_planes = self.base.embed_dim_out
 
+         # -------- number of modalities finally concatenated ------------
+        self.mod_concat  = 3 + (1 if self.use_caption else 0)   # RGB,IR,TI,(txt)
+        self.concat_dim  = self.in_planes * self.mod_concat
+
         # ---------- projections that depend on final in_planes ----------
         if self.use_caption:
             self.cap_proj = nn.Linear(self.txt_dim, self.in_planes, bias=False)
@@ -231,10 +261,13 @@ class build_transformer(nn.Module):
         #     self.teacher_proj = None
         if self.distill_on:
             # Dynamically determine teacher output dim
-            with torch.no_grad():
-                dummy = torch.randn(1, 3, 224, 224)
-                vis_dim = self.teacher_vis(dummy).shape[-1]
-            self.teacher_proj = nn.Linear(vis_dim, self.in_planes, bias=False)
+            # with torch.no_grad():
+            #     dummy = torch.randn(1, 3, 224, 224)
+            #     vis_dim = self.teacher_vis(dummy).shape[-1]
+            # self.teacher_proj = nn.Linear(vis_dim, self.in_planes, bias=False)
+
+            self.teacher_proj = nn.Linear(self.teacher_vis.out_dim,       # =1024
++                self.in_planes, bias=False)
             self.teacher_proj.apply(weights_init_kaiming)
         else:
             self.teacher_proj = None
@@ -248,12 +281,14 @@ class build_transformer(nn.Module):
         self.num_classes = num_classes
         self.ID_LOSS_TYPE = cfg.MODEL.ID_LOSS_TYPE
 
-        self.bottleneck = nn.BatchNorm1d(self.in_planes * 3)
+        # self.bottleneck = nn.BatchNorm1d(self.in_planes * 3)
+        self.bottleneck = nn.BatchNorm1d(self.concat_dim)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
 
         # --- Metric-learning head (classifier) ---
-        head_in = self.in_planes * 3
+        # head_in = self.in_planes * 3
+        head_in = self.concat_dim
         if self.ID_LOSS_TYPE == 'arcface':
             self.classifier = Arcface(head_in, self.num_classes,
                                     s=cfg.SOLVER.COSINE_SCALE, m=cfg.SOLVER.COSINE_MARGIN)
@@ -270,21 +305,7 @@ class build_transformer(nn.Module):
             self.classifier = nn.Linear(head_in, self.num_classes, bias=False)
             self.classifier.apply(weights_init_classifier)
 
-        # self.bottleneck.bias.requires_grad_(False)
-        # self.bottleneck.apply(weights_init_kaiming)
-        # ---------------- Adapter-only finetune -----------------
-        # if getattr(cfg.TRAIN, 'ADAPTER_ONLY', False):
-        #     # for p in self.base.parameters():
-        #     #     p.requires_grad_(False)          # freeze backbone
-        #     # enable adapters
-        #     for m in self.base.modules():
-        #         if isinstance(m, AdapterBlock):
-        #             for p in m.parameters():
-        #                 p.requires_grad_(True)
-        #     print('[Adapter-only] backbone frozen; adapters trainable.')
-        # --------------------------------------------------------
-
-
+      
 
     def _construct_fc_layer(self, fc_dims, input_dim, dropout_p=None):
         """Constructs fully connected layer
@@ -318,108 +339,123 @@ class build_transformer(nn.Module):
 
 
     def forward(self, x1, x2, x3, label=None, cam_label= None, view_label=None, captions=None):
+        # ----------------------- student visual ------------------------
         global_feat1 = self.base(x1, 0, cam_label=cam_label, view_label=view_label)  # RGB
         global_feat2 = self.base(x2, 1, cam_label=cam_label, view_label=view_label)  # IR
         global_feat3 = self.base(x3, 2, cam_label=cam_label, view_label=view_label)  # TI
         global_feat1 = F.normalize(global_feat1, p=2, dim=1)
         global_feat2 = F.normalize(global_feat2, p=2, dim=1)
         global_feat3 = F.normalize(global_feat3, p=2, dim=1)
+        text_feats = None
 
-        global_feat = torch.cat([global_feat1, global_feat2 , global_feat3], dim=1)
-        feat = self.bottleneck(global_feat)
-
-        text_feats = None  # Ensure always defined
-
-        
-        # if self.use_caption and captions is not None:
-        #     tokenised = self.tokenizer(
-        #         captions, padding=True, truncation=True,
-        #         return_tensors="pt").to(x1.device)
-        #     cap_cls = self.text_encoder(token_ids=tokenised)   # [B, 1024]
-        #     #text_feats = self.cap_proj(cap_cls)                # [B, 768]
-        #     #text_feats = self.text_encoder(token_ids=tokenised)
-        #     text_feats = self.cap_proj(cap_cls) if self.cap_proj is not None else None  # [B, in_planes]
+        # if text_feats is None:
+        #     global_feat = torch.cat((global_feat1, global_feat2, global_feat3,text_feats),dim=1) 
         # else:
-        #     text_feats = None
-        # --- CAPTION STREAM -------------------------------------------------
+        #     global_feat = torch.cat((global_feat1, global_feat2, global_feat3),dim=1)
+                                 
+
+        # # global_feat = torch.cat([global_feat1, global_feat2 , global_feat3], dim=1)
+        # feat = self.bottleneck(global_feat)
         if self.use_caption and captions is not None:
+            # tokenize + encode with frozen Nomic text
+            pref = [f"search_document: {c}" for c in captions] \
+                   if isinstance(captions, (list,tuple)) else [f"search_document: {captions}"]
+            with torch.no_grad():
+                inp     = self.tokenizer(pref, padding=True, truncation=True,
+                                          return_tensors="pt").to(x1.device)
+                cls_txt = self.text_encoder(**inp).last_hidden_state[:,0]
+            # project & normalize
+            text_feats = F.normalize(self.cap_proj(cls_txt), p=2, dim=1)
 
-            # 1)  Force everything into a flat List[str]
-            if isinstance(captions, (list, tuple)):
-                captions_norm = []
-                for c in captions:
-                    if isinstance(c, str):
-                        captions_norm.append(c)
-                    elif isinstance(c, (list, tuple)):          # token list → join
-                        captions_norm.append(" ".join(map(str, c)))
-                    else:                                       # numbers / numpy / bytes
-                        captions_norm.append(str(c))
-            else:                                              # single caption
-                captions_norm = [str(captions)]
-
-            # 2)  Tokenise
-            tokenised = self.tokenizer(
-                captions_norm,
-                padding=True,
-                truncation=True,
-                return_tensors="pt"
-            ).to(x1.device)                     # dict(input_ids, attention_mask, ...)
-
-            # 3)  Nomic-text encoder returns CLS vector
-            cap_cls = self.text_encoder(token_ids=tokenised)    # [B, 1024]
-            cap_cls = self.cap_proj(cap_cls) if self.cap_proj is not None else cap_cls
-
-            # 4)  Tile over the requested modalities (“rgb_only” ⇒ 1)
-            text_feats = cap_cls.unsqueeze(0).repeat(
-                len(self.caption_modalities), 1, 1              # [L, B, D]
-            )
+        # ----------------------- concat streams -----------------------
+        if text_feats is None:
+            # no caption: just RGB ∥ IR ∥ TI
+            concat_list = [global_feat1, global_feat2, global_feat3]
         else:
-            text_feats = None
-# --------------------------------------------------------------------
+            # include text as 4th block
+            concat_list = [global_feat1, global_feat2, global_feat3, text_feats]
 
-        # if self.use_caption and captions is not None:
-        #     # inputs = self.tokenizer(
-        #     #     captions, padding=True, truncation=True,
-        #     #     return_tensors="pt"
-        #     # ).to(x1.device)
-        #     if isinstance(captions, (list, tuple)):
-        #         captions_norm = []
-        #         for c in captions:
-        #             if isinstance(c, (list, tuple)):           # token list
-        #                 captions_norm.append(" ".join(map(str, c)))
-        #             else:                                      # single str/bytes/np
-        #                 captions_norm.append(str(c))
-        #     else:                                              # single caption
-        #         captions_norm = [str(captions)]
+        global_feat = torch.cat(concat_list, dim=1)
+        feat        = self.bottleneck(global_feat)
 
-        #     #tokenised = self.tokenizer(captions, padding=True, truncation=True, return_tensors="pt").to(x1.device)                    # dict with input_ids / attention_mask
-        #     # FrozenNomicText returns pooled CLS already; if it returns full sequence,
-        #     # use `.last_hidden_state[:,0]`
-        #     #cap_cls = self.text_encoder(**inputs)
-        #     cap_cls = self.text_encoder(token_ids=tokenised)          # [B, 1024]
-        #     cap_cls = self.cap_proj(cap_cls) if self.cap_proj is not None else cap_cls  # [B, D]
-            
-        #     text_feats = cap_cls.unsqueeze(0).repeat(
-        #         len(self.caption_modalities), 1, 1)  # [L, B, D]
-        # else:
-        #     text_feats = None
+        # ---------- CAPTION STREAM ----------
+        
+        if self.use_caption and captions is not None:
+            # ①  prefix for Nomic Text
+            prefixed = [f"search_document: {c}" for c in captions] \
+                    if isinstance(captions, (list, tuple)) else [f"search_document: {captions}"]
 
+            # ②  tokenise & encode (no grad – frozen)
+            with torch.no_grad():
+                inputs = self.tokenizer(prefixed, padding=True, truncation=True,
+                                        return_tensors="pt").to(x1.device)
+                cls_vec = self.text_encoder(**inputs).last_hidden_state[:, 0]
+
+            # ③  project to ViT width if required
+            #text_feats = self.cap_proj(cls_vec) if self.cap_proj else cls_vec          # (B,D)
+            text_feats = F.normalize(self.cap_proj(cls_vec), p=2, dim=1)         # (B, in_planes)
+
+            # zero‑pad so dim is always constant
+        if text_feats is None and self.use_caption:
+            text_feats = torch.zeros_like(global_feat1)         # (B, in_planes)
+            # -------------------- global concatenation ---------------------
+        global_feat = torch.cat([global_feat1, global_feat2, global_feat3,
+                                 text_feats] if self.use_caption else
+                                [global_feat1, global_feat2, global_feat3], dim=1)
+
+         # -------------------- teacher (frozen Nomic vision) ------------
+        teacher_cls = None
+        if self.teacher_vis is not None:
+            with torch.no_grad():
+                t_raw       = self.teacher_vis(x1)                 # (B, vis_dim)
+            teacher_cls = F.normalize(self.teacher_proj(t_raw), p=2, dim=1)
+
+        # -------------------- assemble list for loss -------------------
+        feat_list = [global_feat,          # 0 – anchor (concat CLS)
+                     global_feat1,         # 1 – RGB
+                     global_feat2,         # 2 – IR
+                     global_feat3,         # 3 – TI
+                     text_feats,           # 4 – caption CLS   (may be zeros)
+                     teacher_cls]          # 5 – teacher CLS
+
+       
 
         if self.training:
             if self.ID_LOSS_TYPE in ('arcface', 'cosface', 'amsoftmax', 'circle'):
                 cls_score = self.classifier(feat, label)
             else:
                 cls_score = self.classifier(feat)
-
-            feat_list = [global_feat, global_feat1, global_feat2, global_feat3, text_feats]
-            # teacher CLS appended iff distillation ON
-            if self.teacher_vis is not None:
-                    with torch.no_grad():
-                        t_raw = self.teacher_vis(x1)        # RGB input
-                    if self.teacher_proj is not None:
-                        t_cls = self.teacher_proj(t_raw) 
-                        feat_list.append(t_cls)
             return cls_score, feat_list
+
+        # ---------- PACK RETURN LIST ----------
+        #feat_list = [global_feat, global_feat1, global_feat2, global_feat3, text_feats]
+
+        # # teacher CLS (optional, may be None)
+        # if self.teacher_vis:
+        #     with torch.no_grad():
+        #         t_raw = self.teacher_vis(x1)                    # (B,1024 or 768 ...)
+        #     feat_list.append(self.teacher_proj(t_raw) if self.teacher_proj else t_raw)
+
+
+        # if self.training:
+        #     if self.ID_LOSS_TYPE in ('arcface', 'cosface', 'amsoftmax', 'circle'):
+        #         cls_score = self.classifier(feat, label)
+        #     else:
+        #         cls_score = self.classifier(feat)
+
+   
+        #     feat_list = [
+        #     global_feat1,      # RGB stream        – shape [B, in_planes]
+        #     global_feat2,      # IR  stream
+        #     global_feat3,      # TI  stream
+        #     text_feats  ]       # caption stream    – None or [L,B,in_planes]]
+
+        #     if self.teacher_vis is not None:
+        #         with torch.no_grad():
+        #             t_raw = self.teacher_vis(x1)          # teacher on RGB only
+        #         t_cls = self.teacher_proj(t_raw) if self.teacher_proj else t_raw
+        #         feat_list.append(t_cls)                   # teacher RGB
+        #     return cls_score, feat_list
 
         
 
@@ -428,6 +464,7 @@ class build_transformer(nn.Module):
                 return feat
             else:
                 return global_feat
+
 
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)
@@ -449,7 +486,7 @@ __factory_T_type = {
     'deit_small_patch16_224_TransReID': deit_small_patch16_224_TransReID
 }
 
-def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy):
+def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy, device):
 
 
     if cfg.MODEL.NAME == 'transformer':
@@ -457,7 +494,7 @@ def make_model(cfg, num_class, camera_num, view_num, train_mode, fuse_strategy):
             # model = build_transformer_local(num_class, camera_num, view_num, cfg, __factory_T_type, rearrange=cfg.MODEL.RE_ARRANGE)
             print('===========building transformer with JPM module ===========')
         else:
-            model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type)
+            model = build_transformer(num_class, camera_num, view_num, cfg, __factory_T_type, device)
             print('===========building transformer===========')
     else:
         model = Backbone(num_class, cfg)

@@ -1,0 +1,191 @@
+2025-07-27 06:05:50 transreid INFO: Saving model in the path :./logs/Market1501/3M-v1-1
+2025-07-27 06:05:50 transreid INFO: Namespace(config_file='configs/Market1501/vit_base_3M.yml', dist=True, local_rank=0, opts=[])
+2025-07-27 06:05:50 transreid INFO: Loaded configuration file configs/Market1501/vit_base_3M.yml
+2025-07-27 06:05:50 transreid INFO: 
+MODEL:
+  PRETRAIN_CHOICE: 'imagenet'
+  # PRETRAIN_PATH: 'C:\Users\ziwang\.conda\jx_vit_base_p16_224-80ecf9dd.pth'
+  # PRETRAIN_PATH: 'models/jx_vit_base_p16_224-80ecf9dd.pth'
+  PRETRAIN_PATH: "/mnt/data2/Hammad/git_repos/HTT-EXP/models/jx_vit_base_p16_224-80ecf9dd.pth"
+  CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased"
+  METRIC_LOSS_TYPE: 'triplet'
+  IF_LABELSMOOTH: 'off'
+  IF_WITH_CENTER: 'no'
+  NAME: 'transformer'
+  NO_MARGIN: True
+  # DEVICE_ID: ('1')
+  TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
+  STRIDE_SIZE: [16, 16]
+  # TRAIN_MODE: 'RNT'
+  DIST_TRAIN: False
+
+INPUT:
+  SIZE_TRAIN: [256, 128]
+  SIZE_TEST: [256, 128]
+  PROB: 0.5 # random horizontal flip
+  RE_PROB: 0.5 # random erasing
+  PADDING: 10
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+
+DATASETS:
+  MULTI: False                 # False → use the single dataset in NAMES
+  NAMES: [market1501, market1501_MM]
+  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
+
+DATALOADER:
+  SAMPLER: 'softmax_triplet'
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 8
+
+IMAGE_MODALITY: ["RGB", "IR", "TI"]
+
+CAPTION:
+  ENABLE: False
+  STRATEGY: "matched"   # or "rgb_only"
+  LOSS:
+    TRIPLET: True
+    CONTRASTIVE: True
+    WEIGHT: 0.5
+
+SOLVER:
+  OPTIMIZER_NAME: 'SGD'
+  MAX_EPOCHS: 120
+  BASE_LR: 0.008
+  IMS_PER_BATCH: 64
+  WARMUP_METHOD: 'linear'
+  LARGE_FC_LR: False
+  CHECKPOINT_PERIOD: 20
+  LOG_PERIOD: 50
+  EVAL_PERIOD: 20
+  WEIGHT_DECAY:  1e-4
+  WEIGHT_DECAY_BIAS: 1e-4
+  BIAS_LR_FACTOR: 2
+  # SEED: 1
+
+TEST:
+  EVAL: True
+  IMS_PER_BATCH: 256
+  RE_RANKING: False
+  # WEIGHT: 'E:\code\TransReID-3modal-ttt-main-AAAI2024\logs_rgbnt201\baseline+CIM15-68.5% 71.1% 82.7% 88.9%\transformer_best.pth'
+  WEIGHT: ''
+  # NECK_FEAT: 'after'
+  NECK_FEAT: 'before'
+  FEAT_NORM: 'yes'
+
+OUTPUT_DIR: './logs/Market1501/3M-v1-1'
+
+
+
+2025-07-27 06:05:50 transreid INFO: Running with config:
+CAPTION:
+  ENABLE: False
+  LOSS:
+    ADAPTIVE_TRIPLET: True
+    CONTRASTIVE: True
+    INFO_NCE: True
+    TRIPLET: True
+    WEIGHT: 0.5
+  MODALITY: ['RGB']
+  STRATEGY: matched
+DATALOADER:
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 8
+  SAMPLER: softmax_triplet
+DATASETS:
+  MODE: full-modal
+  MULTI: False
+  NAMES: ['market1501', 'market1501_MM']
+  ROOT_DIR: /mnt/data2/Hammad/Datasets/ReID_data
+IMAGE_MODALITY: ['RGB', 'IR', 'TI']
+INPUT:
+  PADDING: 10
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+  PROB: 0.5
+  RE_PROB: 0.5
+  SIZE_TEST: [256, 128]
+  SIZE_TRAIN: [256, 128]
+MODEL:
+  ATT_DROP_RATE: 0.0
+  CAPTION_MODEL_PATH: /mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased
+  COS_LAYER: False
+  DEVICE: cuda
+  DEVICE_ID: 0
+  DEVIDE_LENGTH: 4
+  DISTILL:
+    ENABLE: False
+    W: 1.0
+  DIST_TRAIN: True
+  DROP_OUT: 0.0
+  DROP_PATH: 0.1
+  FUSE_STRATEGY: False
+  ID_LOSS_TYPE: softmax
+  ID_LOSS_WEIGHT: 1.0
+  IF_LABELSMOOTH: off
+  IF_WITH_CENTER: no
+  JPM: False
+  LAST_STRIDE: 1
+  METRIC_LOSS_TYPE: triplet
+  NAME: transformer
+  NECK: bnneck
+  NO_MARGIN: True
+  PRETRAIN_CHOICE: imagenet
+  PRETRAIN_PATH: /mnt/data2/Hammad/git_repos/HTT-EXP/models/jx_vit_base_p16_224-80ecf9dd.pth
+  RE_ARRANGE: True
+  SHIFT_NUM: 5
+  SHUFFLE_GROUP: 2
+  SIE_CAMERA: False
+  SIE_COE: 3.0
+  SIE_VIEW: False
+  STRIDE_SIZE: [16, 16]
+  TRAIN_MODE: R
+  TRANSFORMER_TYPE: vit_base_patch16_224_TransReID
+  TRIPLET_LOSS_WEIGHT: 1.0
+OUTPUT_DIR: ./logs/Market1501/3M-v1-1
+SOLVER:
+  BASE_LR: 0.008
+  BIAS_LR_FACTOR: 2
+  CENTER_LOSS_WEIGHT: 0.0005
+  CENTER_LR: 0.5
+  CHECKPOINT_PERIOD: 20
+  CIM_MARGIN: 0.3
+  COSINE_MARGIN: 0.5
+  COSINE_SCALE: 30
+  EVAL_PERIOD: 20
+  GAMMA: 0.1
+  IMS_PER_BATCH: 64
+  LARGE_FC_LR: False
+  LOG_PERIOD: 50
+  MARGIN: 0.3
+  MAX_EPOCHS: 120
+  MOMENTUM: 0.9
+  OPTIMIZER_NAME: SGD
+  SEED: 1234
+  STEPS: (40, 70)
+  WARMUP_EPOCHS: 5
+  WARMUP_FACTOR: 0.01
+  WARMUP_METHOD: linear
+  WEIGHT_DECAY: 0.0001
+  WEIGHT_DECAY_BIAS: 0.0001
+TEST:
+  DIST_MAT: dist_mat.npy
+  EVAL: True
+  FEAT_NORM: yes
+  IMS_PER_BATCH: 256
+  NECK_FEAT: before
+  RE_RANKING: False
+  WEIGHT: 
+TRAIN:
+  ADAPTER_ONLY: False
+TTA:
+  ENTROPY_ENABLE: True
+  ENTROPY_W: 1.0
+2025-07-27 06:05:50 transreid INFO: Image Modalities: ['RGB', 'IR', 'TI']
+2025-07-27 06:05:50 transreid INFO: Caption Enabled: False
+2025-07-27 06:05:50 transreid INFO: Caption Strategy: N/A
+2025-07-27 06:05:50 transreid INFO: Caption Modalities: []
+2025-07-27 06:05:54 transreid.train INFO: start training
+2025-07-27 06:12:02 transreid.train INFO: Epoch[1] Iteration[50/184] Loss: 7.354, Acc: 0.006, Base Lr: 1.66e-03
+2025-07-27 06:18:14 transreid.train INFO: Epoch[1] Iteration[100/184] Loss: 7.291, Acc: 0.018, Base Lr: 1.66e-03
+2025-07-27 06:23:46 transreid.train INFO: Epoch[1] Iteration[150/184] Loss: 7.211, Acc: 0.034, Base Lr: 1.66e-03

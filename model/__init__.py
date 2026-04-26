@@ -1,2 +1,2 @@
-from .make_model import make_model
-from .nomic_backbones import FrozenNomicVision, FrozenNomicText
+from .make_model_ import make_model
+from .nomic_backbones_ import FrozenNomicVision, FrozenNomicText

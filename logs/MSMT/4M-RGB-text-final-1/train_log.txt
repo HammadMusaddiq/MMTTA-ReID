@@ -1,0 +1,256 @@
+2025-07-30 22:20:46 transreid INFO: Saving model in the path :./logs/MSMT/4M-RGB-text-final-1
+2025-07-30 22:20:46 transreid INFO: Namespace(config_file='configs/Market1501/vit_base_4M_1C_test.yml', dist=False, local_rank=0, opts=[])
+2025-07-30 22:20:46 transreid INFO: Loaded configuration file configs/Market1501/vit_base_4M_1C_test.yml
+2025-07-30 22:20:46 transreid INFO: 
+MODEL:
+  PRETRAIN_CHOICE: 'imagenet'
+  # PRETRAIN_PATH: 'C:\Users\ziwang\.conda\jx_vit_base_p16_224-80ecf9dd.pth'
+  PRETRAIN_PATH: '/mnt/data2/Hammad/git_repos/HTT-EXP/models/jx_vit_base_p16_224-80ecf9dd.pth'
+  # CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/Instruct-ReID/bert-base-uncased"
+  CAPTION_MODEL_PATH: "/mnt/data2/Hammad/git_repos/HTT-EXP/models/nomic"
+  METRIC_LOSS_TYPE: 'triplet'
+  IF_LABELSMOOTH: 'off'
+  IF_WITH_CENTER: 'no'
+  NAME: 'transformer'
+  NO_MARGIN: False
+  # DEVICE_ID: ('4')
+  TRANSFORMER_TYPE: 'vit_base_patch16_224_TransReID'
+  STRIDE_SIZE: [16, 16]
+  # TRAIN_MODE: 'RNT'
+  ID_LOSS_WEIGHT: 0.5 
+  TRIPLET_LOSS_WEIGHT: 2.0
+  DISTILL:
+    ENABLE: True
+    W: 0.5          # λ_dist in the paper
+
+INPUT:
+  SIZE_TRAIN: [256, 128]
+  SIZE_TEST: [256, 128]
+  PROB: 0.5 # random horizontal flip
+  RE_PROB: 0.5 # random erasing
+  PADDING: 10
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+
+DATASETS:
+  MULTI: False                 # False → use the single dataset in NAMES
+  # NAMES: [market1501]
+  NAMES: [msmt17]
+  ROOT_DIR: ('/mnt/data2/Hammad/Datasets/ReID_data')
+
+DATALOADER:
+  SAMPLER: 'softmax_triplet'
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 16
+  persistent_workers: True
+  pin_memory: True
+  prefetch_factor: 4
+
+IMAGE_MODALITY: ["RGB", "IR", "TI"]
+
+CAPTION:
+  ENABLE: True
+  STRATEGY: "rgb_only"   # or "rgb_only" / "matched"
+  LOSS:
+    INFO_NCE: True   # new switch
+    TRIPLET: True
+    ADAPTIVE_TRIPLET: True
+    CONTRASTIVE: True
+    WEIGHT: 1.0
+
+
+
+TRAIN:
+  ADAPTER_ONLY: True
+
+SOLVER:
+  OPTIMIZER_NAME: 'AdamW'
+  MAX_EPOCHS: 90
+  BASE_LR: 3e-5
+  IMS_PER_BATCH: 64
+  WARMUP_METHOD: 'linear'
+  LARGE_FC_LR: False
+  CHECKPOINT_PERIOD: 1
+  LOG_PERIOD: 50
+  EVAL_PERIOD: 1
+  WEIGHT_DECAY:  0.05
+  WEIGHT_DECAY_BIAS: 1e-4
+  BIAS_LR_FACTOR: 2
+  # SEED: 1
+
+TTA:
+  ENTROPY_ENABLE: True
+  ENTROPY_W:      1.0
+
+
+TEST:
+  EVAL: True
+  IMS_PER_BATCH: 128
+  RE_RANKING: False
+  # WEIGHT: 'E:\code\TransReID-3modal-ttt-main-AAAI2024\logs_rgbnt201\baseline+CIM15-68.5% 71.1% 82.7% 88.9%\transformer_best.pth'
+  WEIGHT: ''
+  # NECK_FEAT: 'after'
+  NECK_FEAT: 'before'
+  FEAT_NORM: 'yes'
+
+# OUTPUT_DIR: './logs/Market1501/4M-RGB-text-final'
+OUTPUT_DIR: './logs/MSMT/4M-RGB-text-final-1'
+#now loss function adjusted
+2025-07-30 22:20:46 transreid INFO: Running with config:
+CAPTION:
+  ENABLE: True
+  LOSS:
+    ADAPTIVE_TRIPLET: True
+    CONTRASTIVE: True
+    INFO_NCE: True
+    TRIPLET: True
+    WEIGHT: 1.0
+  STRATEGY: rgb_only
+DATALOADER:
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 16
+  SAMPLER: softmax_triplet
+  persistent_workers: True
+  pin_memory: True
+  prefetch_factor: 4
+DATASETS:
+  MULTI: False
+  NAMES: ['msmt17']
+  ROOT_DIR: /mnt/data2/Hammad/Datasets/ReID_data
+IMAGE_MODALITY: ['RGB', 'IR', 'TI']
+INPUT:
+  PADDING: 10
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+  PROB: 0.5
+  RE_PROB: 0.5
+  SIZE_TEST: [256, 128]
+  SIZE_TRAIN: [256, 128]
+MODEL:
+  ATT_DROP_RATE: 0.0
+  CAPTION_MODEL_PATH: /mnt/data2/Hammad/git_repos/HTT-EXP/models/nomic
+  COS_LAYER: False
+  DEVICE: cuda
+  DEVICE_ID: 0
+  DEVIDE_LENGTH: 4
+  DISTILL:
+    ENABLE: True
+    W: 0.5
+  DIST_TRAIN: False
+  DROP_OUT: 0.0
+  DROP_PATH: 0.1
+  FUSE_STRATEGY: False
+  ID_LOSS_TYPE: softmax
+  ID_LOSS_WEIGHT: 0.5
+  IF_LABELSMOOTH: off
+  IF_WITH_CENTER: no
+  JPM: False
+  LAST_STRIDE: 1
+  METRIC_LOSS_TYPE: triplet
+  NAME: transformer
+  NECK: bnneck
+  NO_MARGIN: False
+  PRETRAIN_CHOICE: imagenet
+  PRETRAIN_PATH: /mnt/data2/Hammad/git_repos/HTT-EXP/models/jx_vit_base_p16_224-80ecf9dd.pth
+  RE_ARRANGE: True
+  SHIFT_NUM: 5
+  SHUFFLE_GROUP: 2
+  SIE_CAMERA: False
+  SIE_COE: 3.0
+  SIE_VIEW: False
+  STRIDE_SIZE: [16, 16]
+  TRAIN_MODE: R
+  TRANSFORMER_TYPE: vit_base_patch16_224_TransReID
+  TRIPLET_LOSS_WEIGHT: 2.0
+OUTPUT_DIR: ./logs/MSMT/4M-RGB-text-final-1
+SOLVER:
+  BASE_LR: 3e-05
+  BIAS_LR_FACTOR: 2
+  CENTER_LOSS_WEIGHT: 0.0005
+  CENTER_LR: 0.5
+  CHECKPOINT_PERIOD: 1
+  CIM_MARGIN: 0.3
+  COSINE_MARGIN: 0.5
+  COSINE_SCALE: 30
+  EVAL_PERIOD: 1
+  GAMMA: 0.1
+  IMS_PER_BATCH: 64
+  LARGE_FC_LR: False
+  LOG_PERIOD: 50
+  MARGIN: 0.3
+  MAX_EPOCHS: 90
+  MOMENTUM: 0.9
+  OPTIMIZER_NAME: AdamW
+  SEED: 1234
+  STEPS: (40, 70)
+  WARMUP_EPOCHS: 5
+  WARMUP_FACTOR: 0.01
+  WARMUP_METHOD: linear
+  WEIGHT_DECAY: 0.05
+  WEIGHT_DECAY_BIAS: 0.0001
+TEST:
+  DIST_MAT: dist_mat.npy
+  EVAL: True
+  FEAT_NORM: yes
+  IMS_PER_BATCH: 128
+  NECK_FEAT: before
+  RE_RANKING: False
+  WEIGHT: 
+TRAIN:
+  ADAPTER_ONLY: True
+TTA:
+  ENTROPY_ENABLE: True
+  ENTROPY_W: 1.0
+2025-07-30 22:20:46 transreid INFO: Image Modalities: ['RGB', 'IR', 'TI']
+2025-07-30 22:20:46 transreid INFO: Caption Enabled: True
+2025-07-30 22:20:46 transreid INFO: Caption Strategy: rgb_only
+2025-07-30 22:20:46 transreid INFO: Caption Modalities: ['RGB']
+2025-07-30 22:20:49 transreid.data.stats INFO: => Dataset statistics:
+| Subset   |   # IDs |   # Data Items |   # Cameras |   # Views |   # Total Images |   # Captions |
+|:---------|--------:|---------------:|------------:|----------:|-----------------:|-------------:|
+| Train    |    1041 |          32617 |          15 |         1 |            97851 |        32617 |
+| Query    |    3059 |          11654 |          15 |         1 |            34962 |        11654 |
+| Gallery  |    3060 |          82134 |          15 |         1 |           246402 |        82134 |
+2025-07-30 22:20:54 transreid.train INFO: start training
+2025-07-30 22:23:47 transreid.train INFO: Epoch[1] Iteration[50/486] Loss: 5.454, Acc: 0.001, Base Lr: 6.24e-06
+2025-07-30 22:26:40 transreid.train INFO: Epoch[1] Iteration[100/486] Loss: 5.424, Acc: 0.001, Base Lr: 6.24e-06
+2025-07-30 22:29:32 transreid.train INFO: Epoch[1] Iteration[150/486] Loss: 5.406, Acc: 0.003, Base Lr: 6.24e-06
+2025-07-30 22:32:23 transreid.train INFO: Epoch[1] Iteration[200/486] Loss: 5.392, Acc: 0.003, Base Lr: 6.24e-06
+2025-07-30 22:35:15 transreid.train INFO: Epoch[1] Iteration[250/486] Loss: 5.380, Acc: 0.005, Base Lr: 6.24e-06
+2025-07-30 22:38:07 transreid.train INFO: Epoch[1] Iteration[300/486] Loss: 5.369, Acc: 0.009, Base Lr: 6.24e-06
+2025-07-30 22:40:58 transreid.train INFO: Epoch[1] Iteration[350/486] Loss: 5.359, Acc: 0.014, Base Lr: 6.24e-06
+2025-07-30 22:43:50 transreid.train INFO: Epoch[1] Iteration[400/486] Loss: 5.350, Acc: 0.025, Base Lr: 6.24e-06
+2025-07-30 22:46:43 transreid.train INFO: Epoch[1] Iteration[450/486] Loss: 5.340, Acc: 0.047, Base Lr: 6.24e-06
+2025-07-30 22:48:06 transreid.train INFO: Epoch 1 done. Time per batch: 3.442[s] Speed: 18.6[samples/s]
+2025-07-30 23:13:10 transreid.train INFO: Validation Results - Epoch: 1
+2025-07-30 23:13:10 transreid.train INFO: mAP: 7.1%
+2025-07-30 23:13:10 transreid.train INFO: CMC curve, Rank-1  :24.5%
+2025-07-30 23:13:10 transreid.train INFO: CMC curve, Rank-5  :39.1%
+2025-07-30 23:13:10 transreid.train INFO: CMC curve, Rank-10 :45.9%
+2025-07-30 23:13:10 transreid.train INFO: Best result: 1 7.1% 24.5% 39.1% 45.9%
+2025-07-30 23:16:09 transreid.train INFO: Epoch[2] Iteration[50/486] Loss: 5.238, Acc: 0.089, Base Lr: 1.22e-05
+2025-07-30 23:19:00 transreid.train INFO: Epoch[2] Iteration[100/486] Loss: 5.222, Acc: 0.096, Base Lr: 1.22e-05
+2025-07-30 23:21:51 transreid.train INFO: Epoch[2] Iteration[150/486] Loss: 5.206, Acc: 0.115, Base Lr: 1.22e-05
+2025-07-30 23:24:42 transreid.train INFO: Epoch[2] Iteration[200/486] Loss: 5.188, Acc: 0.135, Base Lr: 1.22e-05
+2025-07-30 23:27:31 transreid.train INFO: Epoch[2] Iteration[250/486] Loss: 5.169, Acc: 0.150, Base Lr: 1.22e-05
+2025-07-30 23:30:21 transreid.train INFO: Epoch[2] Iteration[300/486] Loss: 5.148, Acc: 0.168, Base Lr: 1.22e-05
+2025-07-30 23:33:08 transreid.train INFO: Epoch[2] Iteration[350/486] Loss: 5.125, Acc: 0.183, Base Lr: 1.22e-05
+2025-07-30 23:35:57 transreid.train INFO: Epoch[2] Iteration[400/486] Loss: 5.098, Acc: 0.202, Base Lr: 1.22e-05
+2025-07-30 23:38:44 transreid.train INFO: Epoch[2] Iteration[450/486] Loss: 5.061, Acc: 0.226, Base Lr: 1.22e-05
+2025-07-30 23:39:58 transreid.train INFO: Epoch 2 done. Time per batch: 3.406[s] Speed: 18.8[samples/s]
+2025-07-31 00:04:30 transreid.train INFO: Validation Results - Epoch: 2
+2025-07-31 00:04:30 transreid.train INFO: mAP: 17.7%
+2025-07-31 00:04:30 transreid.train INFO: CMC curve, Rank-1  :42.3%
+2025-07-31 00:04:30 transreid.train INFO: CMC curve, Rank-5  :59.1%
+2025-07-31 00:04:30 transreid.train INFO: CMC curve, Rank-10 :65.6%
+2025-07-31 00:04:30 transreid.train INFO: Best result: 2 17.7% 42.3% 59.1% 65.6%
+2025-07-31 00:07:40 transreid.train INFO: Epoch[3] Iteration[50/486] Loss: 4.870, Acc: 0.073, Base Lr: 1.81e-05
+2025-07-31 00:10:27 transreid.train INFO: Epoch[3] Iteration[100/486] Loss: 4.827, Acc: 0.087, Base Lr: 1.81e-05
+2025-07-31 00:13:13 transreid.train INFO: Epoch[3] Iteration[150/486] Loss: 4.789, Acc: 0.095, Base Lr: 1.81e-05
+2025-07-31 00:15:59 transreid.train INFO: Epoch[3] Iteration[200/486] Loss: 4.754, Acc: 0.104, Base Lr: 1.81e-05
+2025-07-31 00:18:48 transreid.train INFO: Epoch[3] Iteration[250/486] Loss: 4.721, Acc: 0.116, Base Lr: 1.81e-05
+2025-07-31 00:21:36 transreid.train INFO: Epoch[3] Iteration[300/486] Loss: 4.687, Acc: 0.128, Base Lr: 1.81e-05
+2025-07-31 00:24:23 transreid.train INFO: Epoch[3] Iteration[350/486] Loss: 4.645, Acc: 0.146, Base Lr: 1.81e-05
+2025-07-31 00:27:11 transreid.train INFO: Epoch[3] Iteration[400/486] Loss: 4.596, Acc: 0.170, Base Lr: 1.81e-05
+2025-07-31 00:30:13 transreid.train INFO: Epoch[3] Iteration[450/486] Loss: 4.517, Acc: 0.205, Base Lr: 1.81e-05
+2025-07-31 00:31:42 transreid.train INFO: Epoch 3 done. Time per batch: 3.427[s] Speed: 18.7[samples/s]

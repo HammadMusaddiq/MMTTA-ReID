@@ -31,7 +31,7 @@ class MSMT17(BaseImageDataset):
         self.dataset_dir   = osp.join(root, self.dataset_dir)
         self.train_dir     = osp.join(self.dataset_dir, 'mask_train_v2')
         self.test_dir      = osp.join(self.dataset_dir, 'mask_test_v2')
-        self.caption_dir   = osp.join(self.dataset_dir, 'cap_predictions', 'MSMT17-v2 Captions')
+        self.caption_dir   = osp.join(root, 'cap_predictions', 'MSMT17-v2 Captions') # fixed path for captions
 
         self.list_train    = osp.join(self.dataset_dir, 'list_train.txt')
         self.list_val      = osp.join(self.dataset_dir, 'list_val.txt')
@@ -62,9 +62,9 @@ class MSMT17(BaseImageDataset):
             self.print_dataset_statistics(train, query, gallery, self.c_modality)
 
         self.train, self.query, self.gallery = train, query, gallery
-        self.num_train_pids, *_   = self.get_imagedata_info(self.train)
-        self.num_query_pids, *_   = self.get_imagedata_info(self.query)
-        self.num_gallery_pids,*_  = self.get_imagedata_info(self.gallery)
+        self.num_train_pids, self.num_train_imgs, self.num_train_cams, self.num_train_vids, self.num_train_images, self.num_train_captions = self.get_imagedata_info(self.train)
+        # self.num_query_pids, self.num_query_imgs, self.num_query_cams, self.num_query_vids, self.num_query_images, self.num_query_captions = self.get_imagedata_info(self.query)
+        # self.num_gallery_pids, self.num_gallery_imgs, self.num_gallery_cams, self.num_gallery_vids, self.num_gallery_images, self.num_gallery_captions = self.get_imagedata_info(self.gallery)
 
     # --------------------------------------------------------------------- #
     # file checks

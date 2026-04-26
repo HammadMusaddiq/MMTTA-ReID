@@ -173,7 +173,7 @@ def make_dataloader(cfg):
 
     if cfg.DATASETS.MULTI:
         # use every name in the tuple
-        dataset = load_multi_dataset(cfg, root=cfg.DATASETS.ROOT_DIR)
+        dataset = load_multi_dataset(cfg, root=cfg.DATASETS.ROOT_DIR, c_modality = caption_modality)
         # dataset = merge_datasets(cfg)
     
     else:
@@ -198,6 +198,7 @@ def make_dataloader(cfg):
     if 'triplet' in cfg.DATALOADER.SAMPLER:
         if cfg.MODEL.DIST_TRAIN:
             print('DIST_TRAIN START')
+            print("DIST World Size", dist.get_world_size())
             mini_batch_size = cfg.SOLVER.IMS_PER_BATCH // dist.get_world_size()
             data_sampler = RandomIdentitySampler_DDP(dataset.train, cfg.SOLVER.IMS_PER_BATCH, cfg.DATALOADER.NUM_INSTANCE)
             batch_sampler = torch.utils.data.sampler.BatchSampler(data_sampler, mini_batch_size, True)
@@ -206,7 +207,9 @@ def make_dataloader(cfg):
                 num_workers=num_workers,
                 batch_sampler=batch_sampler,
                 collate_fn=train_collate_fn,
-                pin_memory=True,
+                pin_memory=cfg.DATALOADER.pin_memory,
+                persistent_workers=cfg.DATALOADER.persistent_workers,
+                prefetch_factor=cfg.DATALOADER.prefetch_factor,
             )
         else:
             train_loader = DataLoader(
